@@ -256,9 +256,12 @@ struct perf_event_attr {
 
 				exclude_host   :  1, /* don't count in host   */
 				exclude_guest  :  1, /* don't count in guest  */
-				constraint_duplicate : 1,
+				exclude_callchain_kernel : 1, /* exclude kernel callchains */
+				exclude_callchain_user   : 1, /* exclude user callchains */
 
-				__reserved_1   : 42;
+				__reserved_1   : 40,
+				/* MSM: kernel internal, kept clear of the upstream bits */
+				constraint_duplicate : 1;
 
 	union {
 		__u32		wakeup_events;	  /* wakeup every n events */
