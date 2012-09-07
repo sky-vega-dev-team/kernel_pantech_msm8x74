@@ -30,6 +30,9 @@
 #include <asm/pgtable.h>
 #include <asm/traps.h>
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/syscalls.h>
+
 #define REG_PC	15
 #define REG_PSR	16
 /*
@@ -922,32 +925,41 @@ asmlinkage int syscall_trace(int why, struct pt_regs *regs, int scno)
 				    regs->ARM_r1, regs->ARM_r2, regs->ARM_r3);
 	}
 
-	if (!test_thread_flag(TIF_SYSCALL_TRACE))
-		return scno;
-	if (!(current->ptrace & PT_PTRACED))
-		return scno;
+	current_thread_info()->syscall = scno;
 
-	/*
-	 * IP is used to denote syscall entry/exit:
-	 * IP = 0 -> entry, =1 -> exit
-	 */
-	ip = regs->ARM_ip;
-	regs->ARM_ip = why;
+	if (test_thread_flag(TIF_SYSCALL_TRACE) &&
+	    (current->ptrace & PT_PTRACED)) {
+		/*
+		 * IP is used to denote syscall entry/exit:
+		 * IP = 0 -> entry, =1 -> exit
+		 */
+		ip = regs->ARM_ip;
+		regs->ARM_ip = why;
 
-	/* the 0x80 provides a way for the tracing parent to distinguish
-	   between a syscall stop and SIGTRAP delivery */
-	ptrace_notify(SIGTRAP | ((current->ptrace & PT_TRACESYSGOOD)
-				 ? 0x80 : 0));
-	/*
-	 * this isn't the same as continuing with a signal, but it will do
-	 * for normal use.  strace only continues with a signal if the
-	 * stopping signal is not SIGTRAP.  -brl
-	 */
-	if (current->exit_code) {
-		send_sig(current->exit_code, current, 1);
-		current->exit_code = 0;
+		/* the 0x80 provides a way for the tracing parent to distinguish
+		   between a syscall stop and SIGTRAP delivery */
+		ptrace_notify(SIGTRAP | ((current->ptrace & PT_TRACESYSGOOD)
+					 ? 0x80 : 0));
+		/*
+		 * this isn't the same as continuing with a signal, but it will do
+		 * for normal use.  strace only continues with a signal if the
+		 * stopping signal is not SIGTRAP.  -brl
+		 */
+		if (current->exit_code) {
+			send_sig(current->exit_code, current, 1);
+			current->exit_code = 0;
+		}
+		regs->ARM_ip = ip;
 	}
-	regs->ARM_ip = ip;
 
-	return current_thread_info()->syscall;
+	scno = current_thread_info()->syscall;
+
+	if (test_thread_flag(TIF_SYSCALL_TRACEPOINT)) {
+		if (why)
+			trace_sys_exit(regs, regs_return_value(regs));
+		else
+			trace_sys_enter(regs, scno);
+	}
+
+	return scno;
 }
