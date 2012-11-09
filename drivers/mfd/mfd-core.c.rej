@@ -1,0 +1,23 @@
+--- drivers/mfd/mfd-core.c
++++ drivers/mfd/mfd-core.c
+@@ -21,6 +21,11 @@
+ #ifdef CONFIG_MACH_LGE
+ #include <linux/of.h>
+ #endif
++
++static struct device_type mfd_dev_type = {
++	.name	= "mfd_device",
++};
++
+ int mfd_cell_enable(struct platform_device *pdev)
+ {
+ 	const struct mfd_cell *cell = mfd_get_cell(pdev);
+@@ -103,6 +108,8 @@ static int mfd_add_device(struct device *parent, int id,
+ 		}
+ 	}
+ #endif
++	pdev->dev.type = &mfd_dev_type;
++
+ 	if (cell->pdata_size) {
+ 		ret = platform_device_add_data(pdev,
+ 					cell->platform_data, cell->pdata_size);
