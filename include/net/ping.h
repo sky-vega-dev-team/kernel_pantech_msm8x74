@@ -33,7 +33,7 @@
 struct pingv6_ops {
 	int (*ipv6_recv_error)(struct sock *sk, struct msghdr *msg, int len,
 				 int *addr_len);
-	int (*datagram_recv_ctl)(struct sock *sk, struct msghdr *msg,
+	int (*ip6_datagram_recv_ctl)(struct sock *sk, struct msghdr *msg,
 				 struct sk_buff *skb);
 	int (*icmpv6_err_convert)(u8 type, u8 code, int *err);
 	void (*ipv6_icmp_error)(struct sock *sk, struct sk_buff *skb, int err,
