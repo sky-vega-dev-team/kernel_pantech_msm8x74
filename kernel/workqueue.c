@@ -1912,7 +1912,7 @@ __acquires(&gcwq->lock)
 #if defined(CONFIG_PANTECH_DEBUG)
 #ifdef CONFIG_PANTECH_DEBUG_SCHED_LOG  //p14291_121102
     if(pantech_debug_enable)
-        pantechdbg_sched_msg("@%pS", f);
+        pantechdbg_sched_msg("@%pS", worker->current_func);
 #endif
 #endif
 
