@@ -35,11 +35,9 @@
 /* 2 is to account for module & param ID in payload */
 #define ADM_GET_PARAMETER_LENGTH  (4096 - APR_HDR_SIZE - 2 * sizeof(uint32_t))
 
+#define ULL_SUPPORTED_BITS_PER_SAMPLE 16
 #define ULL_SUPPORTED_SAMPLE_RATE 48000
 #define ULL_MAX_SUPPORTED_CHANNEL 2
-#ifdef CONFIG_PANTECH_SND_FLAC //20131223 jhsong : qct patch for 24bit pcm on offload
-#define ULL_SUPPORTED_BITS_PER_SAMPLE 16
-#endif
 enum {
 	ADM_RX_AUDPROC_CAL,
 	ADM_TX_AUDPROC_CAL,
@@ -1211,11 +1209,9 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 		if (perf_mode == ULTRA_LOW_LATENCY_PCM_MODE) {
 			open.topology_id = NULL_COPP_TOPOLOGY;
 			rate = ULL_SUPPORTED_SAMPLE_RATE;
+			open.bit_width = ULL_SUPPORTED_BITS_PER_SAMPLE;
 			if(channel_mode > ULL_MAX_SUPPORTED_CHANNEL)
 				channel_mode = ULL_MAX_SUPPORTED_CHANNEL;
-#ifdef CONFIG_PANTECH_SND_FLAC //20131223 jhsong : qct patch for 24bit pcm on offload
-			bits_per_sample = ULL_SUPPORTED_BITS_PER_SAMPLE;
-#endif
 		} else if (perf_mode == LOW_LATENCY_PCM_MODE) {
 			if ((open.topology_id == DOLBY_ADM_COPP_TOPOLOGY_ID) ||
 			    (open.topology_id == SRS_TRUMEDIA_TOPOLOGY_ID))
