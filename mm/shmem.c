@@ -1617,7 +1617,7 @@ static ssize_t shmem_file_splice_read(struct file *in, loff_t *ppos,
 	return error;
 }
 
-static int __maybe_unused shmem_wait_for_pins(struct address_space *mapping)
+static int shmem_wait_for_pins(struct address_space *mapping)
 {
 	return 0;
 }
@@ -1677,8 +1677,17 @@ int shmem_add_seals(struct file *file, unsigned int seals)
 		goto unlock;
 	}
 
-	/* TODO: this is the place to actually apply seals to
-	 * file->f_mapping, but this was not backported yet */
+	if ((seals & F_SEAL_WRITE) && !(info->seals & F_SEAL_WRITE)) {
+		error = mapping_deny_writable(file->f_mapping);
+		if (error)
+			goto unlock;
+
+		error = shmem_wait_for_pins(file->f_mapping);
+		if (error) {
+			mapping_allow_writable(file->f_mapping);
+			goto unlock;
+		}
+	}
 
 	info->seals |= seals;
 	error = 0;
