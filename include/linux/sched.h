@@ -1372,7 +1372,6 @@ struct task_struct {
 	/* IRQ handler threads */
 	unsigned irq_thread:1;
 #endif
-	unsigned long atomic_flags; /* Flags needing atomic access. */
 
 	unsigned long atomic_flags; /* Flags needing atomic access. */
 
