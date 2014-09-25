@@ -1372,6 +1372,7 @@ struct task_struct {
 	/* IRQ handler threads */
 	unsigned irq_thread:1;
 #endif
+	unsigned long atomic_flags; /* Flags needing atomic access. */
 
 	unsigned long atomic_flags; /* Flags needing atomic access. */
 
@@ -1877,6 +1878,18 @@ extern int task_free_unregister(struct notifier_block *n);
 #define PF_FREEZER_SKIP	0x40000000	/* Freezer should not count it as freezable */
 
 #define PF_SU		0x80000000      /* task is su */
+
+/* Per-process atomic flags. */
+
+#define TASK_PFA_TEST(name, func)					\
+	static inline bool task_##func(struct task_struct *p)		\
+	{ return test_bit(PFA_##name, &p->atomic_flags); }
+#define TASK_PFA_SET(name, func)					\
+	static inline void task_set_##func(struct task_struct *p)	\
+	{ set_bit(PFA_##name, &p->atomic_flags); }
+#define TASK_PFA_CLEAR(name, func)					\
+	static inline void task_clear_##func(struct task_struct *p)	\
+	{ clear_bit(PFA_##name, &p->atomic_flags); }
 
 /*
  * Only the _current_ task can read/write to tsk->flags, but other
