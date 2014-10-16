@@ -149,3 +149,5 @@ obj-$(CONFIG_SENSORS)		+= sensors/
 obj-$(CONFIG_SKY_DMB)		+= dmb/
 
 obj-$(CONFIG_PANTECH_SELINUX_DENIAL_LOG)       += avclog/
+
+obj-$(CONFIG_ANDROID)		+= android/
