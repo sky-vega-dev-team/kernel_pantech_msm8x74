@@ -3143,11 +3143,11 @@ static int taiko_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 		/* Get cfilt */
 		wcd9xxx_resmgr_cfilt_get(&taiko->resmgr, cfilt_sel_val);
 
-		if (strnstr(w->name, internal1_text, 30))
+		if (strnstr(w->name, internal1_text, strlen(w->name)))
 			snd_soc_update_bits(codec, micb_int_reg, 0xE0, 0xE0);
-		else if (strnstr(w->name, internal2_text, 30))
+		else if (strnstr(w->name, internal2_text, strlen(w->name)))
 			snd_soc_update_bits(codec, micb_int_reg, 0x1C, 0x1C);
-		else if (strnstr(w->name, internal3_text, 30))
+		else if (strnstr(w->name, internal3_text, strlen(w->name)))
 			snd_soc_update_bits(codec, micb_int_reg, 0x3, 0x3);
 		else
 			/*
@@ -3208,11 +3208,11 @@ static int taiko_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 		/* Let MBHC module know so micbias switch to be off */
 		wcd9xxx_resmgr_notifier_call(&taiko->resmgr, e_post_off);
 
-		if (strnstr(w->name, internal1_text, 30))
+		if (strnstr(w->name, internal1_text, strlen(w->name)))
 			snd_soc_update_bits(codec, micb_int_reg, 0x80, 0x00);
-		else if (strnstr(w->name, internal2_text, 30))
+		else if (strnstr(w->name, internal2_text, strlen(w->name)))
 			snd_soc_update_bits(codec, micb_int_reg, 0x10, 0x00);
-		else if (strnstr(w->name, internal3_text, 30))
+		else if (strnstr(w->name, internal3_text, strlen(w->name)))
 			snd_soc_update_bits(codec, micb_int_reg, 0x2, 0x0);
 
 		/* Put cfilt */
