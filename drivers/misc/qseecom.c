@@ -1759,6 +1759,13 @@ static int qseecom_send_modfd_cmd(struct qseecom_dev_handle *data,
 	int ret = 0;
 	int i;
 	struct qseecom_send_modfd_cmd_req req;
+
+    if (req.cmd_req_len == 0 || req.cmd_req_len > data->client.sb_length ||
+		req.resp_len > data->client.sb_length) {
+		pr_err("cmd or response buffer length not valid\n");
+		return -EINVAL;
+	}
+
 	struct qseecom_send_cmd_req send_cmd_req;
 
 	ret = copy_from_user(&req, argp, sizeof(req));
