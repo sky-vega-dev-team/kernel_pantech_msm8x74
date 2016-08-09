@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1343,7 +1343,7 @@ static inline int venus_hfi_power_on(struct venus_hfi_device *device)
 {
 	int rc = 0;
 	if (!device) {
-		dprintk(VIDC_ERR, "Invalid params: %p\n", device);
+		dprintk(VIDC_ERR, "Invalid params: %pK\n", device);
 		return -EINVAL;
 	}
 
@@ -1479,7 +1479,7 @@ static inline int venus_hfi_clk_gating_off(struct venus_hfi_device *device)
 {
 	int rc = 0;
 	if (!device) {
-		dprintk(VIDC_ERR, "Invalid params: %p\n", device);
+		dprintk(VIDC_ERR, "Invalid params: %pK\n", device);
 		return -EINVAL;
 	}
 	if (device->clk_state == ENABLED_PREPARED) {
@@ -3658,7 +3658,7 @@ static int protect_cp_mem(struct venus_hfi_device *device)
 
 	iommu_group_set = &device->res->iommu_group_set;
 	if (!iommu_group_set) {
-		dprintk(VIDC_ERR, "invalid params: %p\n", iommu_group_set);
+		dprintk(VIDC_ERR, "invalid params: %pK\n", iommu_group_set);
 		return -EINVAL;
 	}
 
