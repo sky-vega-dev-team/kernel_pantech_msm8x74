@@ -2173,6 +2173,8 @@ extern int		dev_set_mac_address(struct net_device *,
 extern int		dev_hard_start_xmit(struct sk_buff *skb,
 					    struct net_device *dev,
 					    struct netdev_queue *txq);
+extern int		____dev_forward_skb(struct net_device *dev,
+					    struct sk_buff *skb);
 extern int		dev_forward_skb(struct net_device *dev,
 					struct sk_buff *skb);
 
