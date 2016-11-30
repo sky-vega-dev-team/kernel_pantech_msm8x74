@@ -1994,10 +1994,51 @@ static const struct bpf_func_proto bpf_skb_change_tail_proto = {
 	.arg3_type	= ARG_ANYTHING,
 };
 
+BPF_CALL_3(bpf_skb_change_head, struct sk_buff *, skb, u32, head_room,
+	   u64, flags)
+{
+	u32 max_len = BPF_SKB_MAX_LEN;
+	u32 new_len = skb->len + head_room;
+	int ret;
+
+	if (unlikely(flags || (!skb_is_gso(skb) && new_len > max_len) ||
+		     new_len < skb->len))
+		return -EINVAL;
+
+	ret = skb_cow(skb, head_room);
+	if (likely(!ret)) {
+		/* Idea for this helper is that we currently only
+		 * allow to expand on mac header. This means that
+		 * skb->protocol network header, etc, stay as is.
+		 * Compared to bpf_skb_change_tail(), we're more
+		 * flexible due to not needing to linearize or
+		 * reset GSO. Intention for this helper is to be
+		 * used by an L3 skb that needs to push mac header
+		 * for redirection into L2 device.
+		 */
+		__skb_push(skb, head_room);
+		memset(skb->data, 0, head_room);
+		skb_reset_mac_header(skb);
+	}
+
+	bpf_compute_data_end(skb);
+	return 0;
+}
+
+static const struct bpf_func_proto bpf_skb_change_head_proto = {
+	.func		= bpf_skb_change_head,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+	.arg2_type	= ARG_ANYTHING,
+	.arg3_type	= ARG_ANYTHING,
+};
+
 bool bpf_helper_changes_skb_data(void *func)
 {
 	if (func == bpf_skb_store_bytes ||
 	    func == bpf_skb_change_proto ||
+	    func == bpf_skb_change_head ||
 	    func == bpf_skb_change_tail ||
 	    func == bpf_skb_pull_data ||
 	    func == bpf_clone_redirect ||
@@ -2195,6 +2236,8 @@ tc_cls_act_func_proto(enum bpf_func_id func_id)
 		return &bpf_skb_change_type_proto;
 	case BPF_FUNC_skb_change_tail:
 		return &bpf_skb_change_tail_proto;
+	case BPF_FUNC_skb_change_head:
+		return &bpf_skb_change_head_proto;
 	case BPF_FUNC_redirect:
 		return &bpf_redirect_proto;
 	case BPF_FUNC_get_route_realm:
