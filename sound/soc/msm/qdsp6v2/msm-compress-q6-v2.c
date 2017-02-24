@@ -1069,6 +1069,7 @@ static int msm_compr_free(struct snd_compr_stream *cstream)
 	}
 	pdata->is_in_use[soc_prtd->dai_link->be_id] = false;
 	kfree(prtd);
+	runtime->private_data = NULL;
 
 #ifdef CONFIG_PANTECH_SND_NXP
 	setClientId(-1);
