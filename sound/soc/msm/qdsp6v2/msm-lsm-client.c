@@ -38,6 +38,7 @@ struct lsm_priv {
 	struct snd_lsm_event_status *event_status;
 	spinlock_t event_lock;
 	wait_queue_head_t event_wait;
+	struct mutex lsm_api_lock;
 	unsigned long event_avail;
 	atomic_t event_wait_stop;
 };
@@ -116,6 +117,7 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 	uint8_t num_levels = 0;
 
 	pr_debug("%s: enter cmd %x\n", __func__, cmd);
+	mutex_lock(&prtd->lsm_api_lock);
 	switch (cmd) {
 	case SNDRV_LSM_SET_SESSION_DATA:
 		pr_debug("%s: set Session data\n", __func__);
@@ -150,8 +152,10 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 		pr_debug("%s: Registering sound model V2\n", __func__);
 		memcpy(&snd_model_v2, arg,
 		       sizeof(struct snd_lsm_sound_model_v2));
-		if (snd_model_v2.num_confidence_levels > MAX_NUM_CONFIDENCE)
-			return -EINVAL;
+		if (snd_model_v2.num_confidence_levels > MAX_NUM_CONFIDENCE) {
+			rc = -EINVAL;
+			break;
+		}
 		prtd->lsm_client->snd_model_ver_inuse = SND_MODEL_IN_USE_V2;
 		rc = q6lsm_snd_model_buf_alloc(prtd->lsm_client,
 					       snd_model_v2.data_size);
@@ -315,7 +319,7 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 		rc = snd_pcm_lib_ioctl(substream, cmd, arg);
 		break;
 	}
-
+	mutex_unlock(&prtd->lsm_api_lock);
 	if (!rc)
 		pr_debug("%s: leave (%d)\n", __func__, rc);
 	else
@@ -610,6 +614,7 @@ static int msm_lsm_open(struct snd_pcm_substream *substream)
 		return -ENOMEM;
 	}
 	spin_lock_init(&prtd->event_lock);
+	mutex_init(&prtd->lsm_api_lock);
 	init_waitqueue_head(&prtd->event_wait);
 	prtd->substream = substream;
 	prtd->lsm_client = q6lsm_client_alloc(
@@ -676,6 +681,7 @@ static int msm_lsm_close(struct snd_pcm_substream *substream)
 	kfree(prtd->event_status);
 	prtd->event_status = NULL;
 	spin_unlock_irqrestore(&prtd->event_lock, flags);
+	mutex_destroy(&prtd->lsm_api_lock);
 	kfree(prtd);
 
 	return 0;
