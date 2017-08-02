@@ -5171,8 +5171,14 @@ static void css_release_work_fn(struct work_struct *work)
 		if (ss->css_released)
 			ss->css_released(css);
 	} else {
+		struct cgroup *tcgrp;
+
 		/* cgroup release path */
 		trace_cgroup_release(cgrp);
+
+		for (tcgrp = cgroup_parent(cgrp); tcgrp;
+		     tcgrp = cgroup_parent(tcgrp))
+			tcgrp->nr_dying_descendants--;
 
 		cgroup_idr_remove(&cgrp->root->cgroup_idr, cgrp->id);
 		cgrp->id = -1;
@@ -5383,8 +5389,12 @@ static struct cgroup *cgroup_create(struct cgroup *parent)
 		goto out_cancel_ref;
 	}
 
-	for (tcgrp = cgrp; tcgrp; tcgrp = cgroup_parent(tcgrp))
+	for (tcgrp = cgrp; tcgrp; tcgrp = cgroup_parent(tcgrp)) {
 		cgrp->ancestor_ids[tcgrp->level] = tcgrp->id;
+
+		if (tcgrp != cgrp)
+			tcgrp->nr_descendants++;
+	}
 
 	if (notify_on_release(parent))
 		set_bit(CGRP_NOTIFY_ON_RELEASE, &cgrp->flags);
@@ -5588,6 +5598,7 @@ static void kill_css(struct cgroup_subsys_state *css)
 static int cgroup_destroy_locked(struct cgroup *cgrp)
 	__releases(&cgroup_mutex) __acquires(&cgroup_mutex)
 {
+	struct cgroup *tcgrp;
 	struct cgroup_subsys_state *css;
 	struct cgrp_cset_link *link;
 	int ssid;
@@ -5631,6 +5642,11 @@ static int cgroup_destroy_locked(struct cgroup *cgrp)
 	 * extra ref on its kn.
 	 */
 	kernfs_remove(cgrp->kn);
+
+	for (tcgrp = cgroup_parent(cgrp); tcgrp; tcgrp = cgroup_parent(tcgrp)) {
+		tcgrp->nr_descendants--;
+		tcgrp->nr_dying_descendants++;
+	}
 
 	check_for_release(cgroup_parent(cgrp));
 
