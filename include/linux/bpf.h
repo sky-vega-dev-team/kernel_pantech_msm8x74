@@ -43,6 +43,7 @@ struct bpf_map {
 	u32 map_flags;
 	u32 pages;
 	u32 id;
+	u8 name[BPF_OBJ_NAME_LEN];
 	bool unpriv_array;
 	struct user_struct *user;
 	const struct bpf_map_ops *ops;
