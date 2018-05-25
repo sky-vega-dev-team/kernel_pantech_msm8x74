@@ -107,6 +107,15 @@ struct pn547_dev	{
 	struct wake_lock    pn547_wake_lock;
 #endif
 };
+//#define PN547_CLOCK_CONTROL
+#if defined(PN547_CLOCK_CONTROL) //EF65S-p13815
+struct pn547_clk_dev {
+	struct miscdevice   pn547_clk_device;
+	struct clk          *pn547_clk_handle;
+	bool                pn547_clk_enable;
+	struct mutex               pn547_clk_mutex;
+};
+#endif //EF65S-p13815
 
 #ifdef FEATURE_PN547_USE_PMIC_CLK
 static struct clk *xo_handle_a2;
@@ -340,6 +349,64 @@ static const struct file_operations pn547_dev_fops = {
 	.unlocked_ioctl  = pn547_dev_ioctl,
 };
 
+#if defined(PN547_CLOCK_CONTROL) //PN547_CLOCK_CONTROL	//EF65S-p13815
+static int pn547_clk_dev_open(struct inode *inode, struct file *filp)
+{
+	struct pn547_clk_dev *pn547_clk_dev = container_of(filp->private_data,
+						struct pn547_clk_dev,
+						pn547_clk_device);
+	pr_info("%s: PN547 clock contol terminal is opened \n",__func__);
+	filp->private_data = pn547_clk_dev;
+	pr_debug("%s : %d,%d\n", __func__, imajor(inode), iminor(inode));
+	return 0;
+}
+
+static ssize_t pn547_clk_dev_write(struct file *filp, const char __user *buf,
+		size_t count, loff_t *offset)
+{
+	struct pn547_clk_dev  *pn547_clk_dev;
+	char tmp;
+	int ret;
+	pn547_clk_dev = filp->private_data;
+    if (1 != count || !buf ) {
+        pr_err("%s : : Error. Invalid arg write.\n",__func__);
+        return -EINVAL;
+    }
+    if (copy_from_user(&tmp, buf, count)) {
+        pr_err("%s : failed to copy from user space\n", __func__);
+        return -EFAULT;
+    }
+	
+    mutex_lock(&pn547_clk_dev->pn547_clk_mutex);
+    if (tmp == 1) {
+        if (pn547_clk_dev->pn547_clk_enable == false) {
+            ret = clk_prepare_enable(pn547_clk_dev->pn547_clk_handle);
+			pr_info("%s: clock is enabled \n",__func__);
+	    }
+	    pn547_clk_dev->pn547_clk_enable = true;
+		
+    }
+	else {
+        if (pn547_clk_dev->pn547_clk_enable == true) {
+            clk_disable_unprepare(pn547_clk_dev->pn547_clk_handle);
+			pr_info("%s: clock is disabled \n",__func__);
+        }
+        pn547_clk_dev->pn547_clk_enable = false;
+		
+	}
+    mutex_unlock(&pn547_clk_dev->pn547_clk_mutex);
+
+    return 1;
+}
+
+
+static const struct file_operations pn547_clk_fops = {
+	.owner	= THIS_MODULE,
+	.write	= pn547_clk_dev_write,
+	.open	= pn547_clk_dev_open,
+};
+#endif	//EF65S-p13815
+
 static int pn547_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
 {
@@ -349,7 +416,9 @@ static int pn547_probe(struct i2c_client *client,
 #ifdef FEATURE_PN547_USE_PMIC_CLK
 	int rc;
 #endif
-
+#if defined(PN547_CLOCK_CONTROL) //EF65S-p13815
+   struct pn547_clk_dev *pn547_clk_dev;
+#endif	//EF65S-p13815
 #ifdef FEATURE_PN547_USE_DTREE
 	struct device_node *np;
 
@@ -490,8 +559,34 @@ static int pn547_probe(struct i2c_client *client,
     	dev_err(&client->dev,"[%s] clk_prepare_enable fail rc[%d]\n", __func__, rc);
     }
 #endif /* FEATURE_PN547_USE_PMIC_CLK */
-	return 0;
+#if defined(PN547_CLOCK_CONTROL) //EF65S-p13815
+	pn547_clk_dev = kzalloc(sizeof(*pn547_clk_dev), GFP_KERNEL);
+	if (pn547_clk_dev == NULL) {
+		dev_err(&client->dev,
+				"failed to allocate memory for module data\n");
+		ret = -ENOMEM;
+		goto err_exit;
+	}
+    pn547_clk_dev->pn547_clk_enable = false;
+	pn547_clk_dev->pn547_clk_handle = xo_handle_a2;
+	pn547_clk_dev->pn547_clk_device.minor = MISC_DYNAMIC_MINOR;
+	pn547_clk_dev->pn547_clk_device.name = "pn547_clk";
+	pn547_clk_dev->pn547_clk_device.fops = &pn547_clk_fops;
+    mutex_init(&pn547_clk_dev->pn547_clk_mutex);
 
+	ret = misc_register(&pn547_clk_dev->pn547_clk_device);
+	if (ret) {
+		dev_err(&client->dev, "pn547_clk_register failed\n");
+		goto err_clk_misc_register;
+	}
+	clk_disable_unprepare(xo_handle_a2);
+
+#endif		//EF65S-p13815
+	return 0;
+#if defined(PN547_CLOCK_CONTROL)	//EF65S-p13815
+err_clk_misc_register:
+   	kfree(pn547_clk_dev);
+#endif	//EF65S-p13815
 err_request_irq_failed:
 	misc_deregister(&pn547_dev->pn547_device);
 err_misc_register:
@@ -542,7 +637,9 @@ static int pn547_suspend(struct device *dev)
 	pr_info("pn547_suspend*********** client IRQ[%d]\n", pn547_dev->client->irq);
 	pr_info("pn547_suspend*********** gpio_to_irq IRQ[%d]\n", gpio_to_irq(pn547_dev->irq_gpio));
 #endif
-
+#if defined(CONFIG_MACH_MSM8974_EF65S) 
+	clk_disable_unprepare(xo_handle_a2);	//EF65S p13815
+#endif
     if(VEN_GET_VALUE(pn547_dev->ven_gpio) == 1)
     {
         irq_set_irq_wake(pn547_dev->client->irq, 1);
@@ -558,7 +655,9 @@ static int pn547_resume(struct device *dev)
 	pr_info("<************pn547_resume gpio_to_irq IRQ[%d]\n", gpio_to_irq(pn547_dev->irq_gpio));
 	pr_info("++++++pn547_resume()______pn547_resume irq_nfc [%d]\n", irq_nfc);   
 #endif
-	
+#if defined(CONFIG_MACH_MSM8974_EF65S) 
+	clk_prepare_enable(xo_handle_a2);	//EF65S p13815
+#endif	
     if(VEN_GET_VALUE(pn547_dev->ven_gpio) == 1)
  	{
 	 	if(gpio_get_value(pn547_dev->irq_gpio) == 1)

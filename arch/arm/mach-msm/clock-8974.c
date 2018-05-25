@@ -4944,7 +4944,11 @@ static struct clk_lookup msm_clocks_8974_common[] __initdata = {
 	CLK_LOOKUP("xo",  cxo_a2_pin.c,       "pn544"),
 #endif
 #ifdef CONFIG_PN547
+#if defined(CONFIG_MACH_MSM8974_EF65S)
+	CLK_LOOKUP("xo",  cxo_a2.c,        "pn547"),
+#else 	
 	CLK_LOOKUP("xo",  cxo_a2_pin.c,        "pn547"),   
+#endif
 #endif
 
 	CLK_LOOKUP("measure",	measure_clk.c,	"debug"),
