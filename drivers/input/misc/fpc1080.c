@@ -126,7 +126,7 @@ MODULE_DESCRIPTION("FPC1080 swipe sensor driver.");
 #define FPC1080_WORKER_THREAD_NAME		"fpc1080worker"
 #define FPC1080_MOUSE_DEV_NAME                        "fpc1080Mouse"
 #define FPC1080_TOUCH_PAD_DEV_NAME              "fpc1080TouchPad"
-#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) || defined(CONFIG_MACH_MSM8974_EF60S) ||defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65L)) //p11774 ESD solution
+#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) || defined(CONFIG_MACH_MSM8974_EF60S) ||defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65S)) //p11774 ESD solution
 #define FPC1080_RESET_CNT 3
 #endif
 #define DEBUG
@@ -221,7 +221,7 @@ static int fpc1080_device_count;
 static int fpc1080_mode_change; //p11774 added for IOCTL mode change
 static int fpc1080_mode_change_check;
 //static int fpc1080_power_off_check; // 14/03.05 blocked 
-#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) ||defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65L)) //p11774 ESD solution
+#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) ||defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65S)) //p11774 ESD solution
 static int fp1080_abnormal_cnt;
 static int fpc1080_mode_backup;
 #endif
@@ -387,7 +387,7 @@ static int fpc1080_nav_task(struct fpc1080_data *fpc1080);
 static int fpc1080_chip_off(struct fpc1080_data *fpc1080);/*p11774 added for IOCTL sensor control*/
 static int fpc1080_chip_on(struct fpc1080_data *fpc1080);
 #endif
-#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L)  ||defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65L)) //p11774 ESD solution
+#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L)  ||defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65S)) //p11774 ESD solution
 static int fpc1080_power_reset(struct fpc1080_data *fpc1080);
 #endif
 #endif
@@ -1411,7 +1411,7 @@ static int fpc1080_reset(struct fpc1080_data *fpc1080)
 
 	if (error) {
 		dev_err(&fpc1080->spi->dev, "irq after reset timed out\n");
-#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) ||defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65L)) //p11774 ESD solution
+#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) ||defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65S)) //p11774 ESD solution
 		fp1080_abnormal_cnt ++;
 		if(fp1080_abnormal_cnt >= FPC1080_RESET_CNT)
 			{
@@ -2685,7 +2685,7 @@ static int fpc1080_chip_on(struct fpc1080_data *fpc1080) /*p11774 added for IOCT
 	return status;
 }
 #endif
-#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) || defined(CONFIG_MACH_MSM8974_EF60S) ||defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65L)) //p11774 ESD solution
+#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) || defined(CONFIG_MACH_MSM8974_EF60S) ||defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65S)) //p11774 ESD solution
 static int fpc1080_power_reset(struct fpc1080_data *fpc1080)
 {
 	int status;
@@ -2947,14 +2947,14 @@ static long fpc1080_ioctl(struct file *filp, unsigned int cmd,
 
 	switch (cmd) {
 	case FPC1080_IOCTL_START_CAPTURE:
-#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) ||defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65L)) //p11774 ESD solution
+#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) ||defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65S)) //p11774 ESD solution
 		fpc1080_mode_backup = 2;
 #endif
 		error = fpc1080_start_capture(fpc1080);
 		break;
 	case FPC1080_IOCTL_ABORT_CAPTURE:
 		error = fpc1080_abort_capture(fpc1080);
-#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) || defined(CONFIG_MACH_MSM8974_EF60S) ||defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65L)) //p11774 ESD solution
+#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) || defined(CONFIG_MACH_MSM8974_EF60S) ||defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65S)) //p11774 ESD solution
 		fpc1080_mode_backup = 3;
 #endif
 		break;
@@ -2994,13 +2994,13 @@ static long fpc1080_ioctl(struct file *filp, unsigned int cmd,
 				DBG_CR("Gesture mode set!!\n");
 			}
 		error = fpc1080_start_navigation(fpc1080);
-#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L)|| defined(CONFIG_MACH_MSM8974_EF60S) ||defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65L)) //p11774 ESD solution
+#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L)|| defined(CONFIG_MACH_MSM8974_EF60S) ||defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65S)) //p11774 ESD solution
 		fpc1080_mode_backup = 1;
 #endif
 		break;
 	case FPC1080_IOCTL_STOP_NAVI: /*p11774 added for IOCTL sensor control*/
 		error = fpc1080_stop_navigation(fpc1080);
-#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) || defined(CONFIG_MACH_MSM8974_EF60S) ||defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65L)) //p11774 ESD solution
+#if (defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) || defined(CONFIG_MACH_MSM8974_EF60S) ||defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)|| defined(CONFIG_MACH_MSM8974_EF65S)) //p11774 ESD solution
 		fpc1080_mode_backup = 3;
 #endif
 		break;
