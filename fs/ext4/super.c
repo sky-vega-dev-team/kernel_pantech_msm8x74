@@ -491,7 +491,7 @@ static void ext4_handle_error(struct super_block *sb)
 		sb->s_flags |= MS_RDONLY;
 #ifdef CONFIG_PANTECH_FS_AUTO_REPAIR 
 		/* added for userdata partition auti repair */
-#if defined(CONFIG_MACH_MSM8974_EF63S) || defined(CONFIG_MACH_MSM8974_EF63K) || defined(CONFIG_MACH_MSM8974_EF63L)
+#if defined(CONFIG_MACH_MSM8974_EF63S) || defined(CONFIG_MACH_MSM8974_EF63K) || defined(CONFIG_MACH_MSM8974_EF63L) || defined(CONFIG_MACH_MSM8974_EF65S)
 		if(strcmp(sb->s_id, "mmcblk0p29")==0)
 #else
 		if(strcmp(sb->s_id, "mmcblk0p27")==0)
@@ -689,7 +689,7 @@ void __ext4_abort(struct super_block *sb, const char *function,
 			jbd2_journal_abort(EXT4_SB(sb)->s_journal, -EIO);
 		save_error_info(sb, function, line);
 #ifdef CONFIG_PANTECH_FS_AUTO_REPAIR 
-#if defined(CONFIG_MACH_MSM8974_EF63S) || defined(CONFIG_MACH_MSM8974_EF63K) || defined(CONFIG_MACH_MSM8974_EF63L)
+#if defined(CONFIG_MACH_MSM8974_EF63S) || defined(CONFIG_MACH_MSM8974_EF63K) || defined(CONFIG_MACH_MSM8974_EF63L) || defined(CONFIG_MACH_MSM8974_EF65S)
 		if(strcmp(sb->s_id, "mmcblk0p29")==0)
 #else
 		if(strcmp(sb->s_id, "mmcblk0p27")==0)
