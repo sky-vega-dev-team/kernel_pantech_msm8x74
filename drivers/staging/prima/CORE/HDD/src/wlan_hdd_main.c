@@ -10746,6 +10746,13 @@ void hdd_wlan_exit(hdd_context_t *pHddCtx)
    
    hdd_stop_all_adapters( pHddCtx );
 
+   /*
+    * Set conparam to VOS_STA_MODE by default since it won't clear
+    * this flag if switch from sap to sta with static driver mode.
+    */
+   if (VOS_STA_SAP_MODE == hdd_get_conparam())
+       hdd_set_conparam(0);
+
 #ifdef WLAN_BTAMP_FEATURE
    vosStatus = WLANBAP_Stop(pVosContext);
    if (!VOS_IS_STATUS_SUCCESS(vosStatus))
