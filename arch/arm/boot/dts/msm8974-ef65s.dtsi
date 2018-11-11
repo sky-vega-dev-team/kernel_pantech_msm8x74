@@ -650,11 +650,6 @@ aliases { /* DMB_SPI */
 	};
 
 	gpio@d400 { /* GPIO 21 */
-		qcom,mode = <0>;        /* QPNP_PIN_MODE_DIG_IN */
-		qcom,pull = <4>;	/* QPNP_PIN_PULL_DN */
-		qcom,vin-sel = <2>;       /* QPNP_PIN_VIN2  */
-		qcom,out-strength = <1>;  /* QPNP_PIN_OUT_STRENGTH_LOW */
-		qcom,master-en = <1>;
 	};
 
 	gpio@d500 { /* GPIO 22 */
@@ -820,7 +815,6 @@ aliases { /* DMB_SPI */
 
 &slim_msm {
 	taiko_codec {
-		qcom,cdc-micbias1-ext-cap;
 		qcom,cdc-micbias2-ext-cap;
 		qcom,cdc-micbias3-ext-cap;
 		qcom,cdc-micbias4-ext-cap;

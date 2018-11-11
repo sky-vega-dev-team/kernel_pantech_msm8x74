@@ -14,10 +14,10 @@
 
 /include/ "msm8974-v2.2.dtsi"
 /include/ "msm8974-ef65s.dtsi"
-/include/ "msm8974-camera-sensor-ef60.dtsi"
+/include/ "msm8974-camera-sensor-ef65.dtsi"
 /include/ "msm8974-pmic-max17058-blsp5.dtsi"
 /include/ "msm8974-pmic-smb347.dtsi"
-/include/ "msm8974-dmb-spi-v2.dtsi"
+/include/ "msm8974-dmb-spi-v1.dtsi"
 
 / {
 	model = "Qualcomm MSM 8974v2.2 Pantech EF65S";
