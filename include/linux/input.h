@@ -475,6 +475,9 @@ struct input_keymap_entry {
 #define KEY_DOME        251
 #define KEY_VT_CALL  252
 // LS2 p13106. Add Key information.
+#if defined(CONFIG_MACH_MSM8974_EF65S)
+#define KEY_APP_SWITCH		253 // LS4 p13250, Add Key information
+#endif
 
 /* Code 255 is reserved for special needs of AT keyboard driver */
 
