@@ -41,8 +41,10 @@
 #include "ef56/atmel_540s_v30_cfg_multi.h"
 #elif defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L)
 #include "ef59/atmel_540s_v30_cfg_multi.h"
-#elif defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF65S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L) || defined(CONFIG_MACH_MSM8974_EF63S) || defined(CONFIG_MACH_MSM8974_EF63K) || defined(CONFIG_MACH_MSM8974_EF63L)
+#elif defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L) || defined(CONFIG_MACH_MSM8974_EF63S) || defined(CONFIG_MACH_MSM8974_EF63K) || defined(CONFIG_MACH_MSM8974_EF63L)
 #include "ef60_61_62/atmel_540s_v30_cfg_multi.h"
+#elif defined(CONFIG_MACH_MSM8974_EF65S) || defined(CONFIG_MACH_MSM8974_EF69K) || defined(CONFIG_MACH_MSM8974_EF69L)
+#include "ef65/atmel_540s_v30_cfg_multi.h"
 #else
 #include "ef59/atmel_540s_v30_cfg_multi.h"
 #endif
@@ -285,7 +287,7 @@ unsigned char not_yet_count = 0;
 #define PAN_PMODE_ATCHCALSTHR			0
 #define PAN_PMODE_ATCHFRCCALTHR			70        
 #define PAN_PMODE_ATCHFRCCALRATIO		-120     
-#define PAN_PMODE_AUTOCAL_ENABLE_TIME	6000
+#define PAN_PMODE_AUTOCAL_ENABLE_TIME	4000
 #define PAN_PMODE_ANTICAL_ENABLE_TIME	500
 
 static uint8_t cal_correction_limit = 0;
@@ -294,8 +296,16 @@ static bool pan_pmode_resume_cal=false;
 struct workqueue_struct *pan_pmode_work_queue;
 struct work_struct pan_pmode_antical_wq;
 struct work_struct pan_pmode_autocal_wq;
-//2014.3.27 p13106 
-//static struct timer_list pan_pmode_antical_timer;
+
+//2014.04.25 p13106 for check suppression when touch protection ends.
+#define PAN_PMODE_CHECK_SUP_TIME 1500 // 1.5sec
+struct work_struct pan_pmode_check_sup_wq;
+static struct timer_list pan_pmode_check_sup_timer;
+static bool pan_pmode_check_sup_flag = false;
+static bool pan_pmode_check_sup_start_flag = false;
+void pan_pmode_check_sup_wq_func(struct work_struct * p);
+static void pan_pmode_check_sup_timer_func(unsigned long data);
+
 static struct timer_list pan_pmode_autocal_timer;
 //2014.3.27 p13106
 //static void pan_pmode_antical_timer_func(unsigned long data);
@@ -379,6 +389,357 @@ static struct attribute *mxt_attrs[] = {
 	NULL
 };
 
+#ifdef PAN_TOUCH_DETECT_GHOST
+#define get_time_interval(a,b) a>=b ? a-b : 1000000+a-b
+#define GHOST_DETECT_TIME 10000 // 10ms
+#define GHOST_DETECT_TIME_LONG 1000000 // 1sec
+#define ANTI_TOUCH_CHECK_TIME 10000000
+#define TOTAL_TOUCH_CNT 70 // Touch + anti-touch
+#define ANTI_TOUCH_RATIO 40
+#define ANTI_TOUCH_CALIBRATION_CNT 0
+#define GHOST_TOUCH_CALIBRATION_CNT 0
+#define PAN_PMODE_CALIBRATION_TIME 1000 // 1sec
+#define FIRST_TOUCH_CHECK_TIME 500000 // 500ms
+#define PAN_PMODE_FINGER_RECOVERY_DISABLE_TIME 150//100ms
+
+static report_finger_info_t prev_fingerInfo[MAX_NUM_FINGER];
+static report_finger_info_t curr_fingerInfo[MAX_NUM_FINGER];
+static int first_touch;
+static int ghost_touch_flag[MAX_NUM_FINGER];
+static int prev_last_touch_index = 0;
+static int curr_last_touch_index = 0;
+struct timeval ghost_chk_time_stamp[MAX_NUM_FINGER][TIME_MAX];
+struct timeval touch_time_stamp[TIME_MAX];
+static int anti_touch_check_cnt;
+static int find_ghost_touch_count = 0;
+static int detect_touch_first = 0;
+#define TOUCH_GOOD_CHECK      60000  // 60s
+static bool mflag_touch_good_check=true;
+struct work_struct pan_pmode_touch_good_check_wq;
+static struct timer_list pan_pmode_touch_good_check_timer;
+
+static struct timer_list pan_pmode_calibration_timer;
+static struct timer_list pan_pmode_finger_recovery_disable_timer;
+struct work_struct pan_pmode_calibration_wq;
+struct work_struct pan_pmode_finger_recovery_disable_wq;
+
+static void pan_pmode_touch_good_check_timer_func(unsigned long data);
+void pan_pmode_touch_good_check_wq_func(struct work_struct * p);
+static bool chk_time_interval(struct timeval t_aft, struct timeval t_bef, int t_val);
+static u16 gap_of_position(u16 pos_aft, u16 pos_bef);
+static void pan_pmode_calibration_timer_func(unsigned long data);
+void pan_pmode_calibration_wq_func(struct work_struct * p) ;
+static void pan_pmode_finger_recovery_disable_timer_func(unsigned long data);
+void pan_pmode_finger_recovery_disable_wq_func(struct work_struct * p) ;
+static void pan_check_ghost_touch(void);
+static void pan_check_anti_touch(uint8_t *quantum_msg);
+
+static bool chk_time_interval(struct timeval t_aft, struct timeval t_bef, int t_val)
+{
+	if( t_aft.tv_sec - t_bef.tv_sec == 0 ) {
+		if((get_time_interval(t_aft.tv_usec, t_bef.tv_usec)) <= t_val)
+			return true;
+	} else if( t_aft.tv_sec - t_bef.tv_sec == 1 ) {
+		if( t_aft.tv_usec + 1000000 - t_bef.tv_usec <= t_val)
+			return true;
+	} else if( t_aft.tv_sec - t_bef.tv_sec == 2 ) {
+		if( t_aft.tv_usec + 2000000 - t_bef.tv_usec <= t_val)
+			return true;
+	} else if( t_aft.tv_sec - t_bef.tv_sec == 3 ) {
+		if( t_aft.tv_usec + 3000000 - t_bef.tv_usec <= t_val)
+			return true;
+	} else if( t_aft.tv_sec - t_bef.tv_sec == 4 ) {
+		if( t_aft.tv_usec + 4000000 - t_bef.tv_usec <= t_val)
+			return true;
+	} else if( t_aft.tv_sec - t_bef.tv_sec == 5 ) {
+		if( t_aft.tv_usec + 5000000 - t_bef.tv_usec <= t_val)
+			return true;
+	}
+	return false;
+}
+
+static u16 gap_of_position(u16 pos_aft, u16 pos_bef)
+{
+	u16 result;
+
+	result = (pos_aft - pos_bef < 0) ? (pos_bef - pos_aft) : (pos_aft - pos_bef);
+	return result;
+}
+
+void pan_pmode_calibration_wq_func(struct work_struct * p) 
+{
+	int touch_cnt = 0;
+	int i;
+
+	// Check Touch event count
+	for(i = 0; i < MAX_NUM_FINGER; i++){
+		if ( curr_fingerInfo[i].status == -1 || (curr_fingerInfo[i].mode == TSC_EVENT_NONE && curr_fingerInfo[i].status == TOUCH_EVENT_RELEASE))
+			continue;
+		touch_cnt++;
+	}
+
+	if(touch_cnt == 0)
+	{
+		acquisition_config.atchcalst = PAN_PMODE_ATCHCALST;
+		acquisition_config.atchcalsthr = PAN_PMODE_ATCHCALSTHR;
+		if (write_acquisition_T8_config(acquisition_config) != CFG_WRITE_OK) {
+			dbg_cr("write_acquisition_T8_config error\n");
+		}
+		mod_timer(&pan_pmode_finger_recovery_disable_timer, jiffies + 
+			msecs_to_jiffies(PAN_PMODE_FINGER_RECOVERY_DISABLE_TIME));				
+	}
+
+	if((anti_touch_check_cnt > ANTI_TOUCH_CALIBRATION_CNT) && (detect_touch_first == 0))
+	{
+		dbg_touch("Calibration(anti_touch_check_cnt : %d, touch_cnt : %d).........\n", 
+			anti_touch_check_cnt, touch_cnt);
+		calibrate_chip();
+		clear_event(TSC_CLEAR_ALL);
+	}
+	else if(!mflag_touch_good_check)
+	{
+		dbg_touch("Can't calibration(anti_touch_check_cnt : %d, touch_cnt : %d).........\n", 
+			anti_touch_check_cnt, touch_cnt);	
+		mod_timer(&pan_pmode_calibration_timer, jiffies + 
+			msecs_to_jiffies(PAN_PMODE_CALIBRATION_TIME));		
+	}
+}
+
+static void pan_pmode_touch_good_check_timer_func(unsigned long data)
+{  
+	queue_work(pan_pmode_work_queue, &pan_pmode_touch_good_check_wq);
+}
+void pan_pmode_touch_good_check_wq_func(struct work_struct * p)
+{  
+	dbg_cr(" Touch good calibration.\n");
+	mflag_touch_good_check=true;
+	mxt_Multitouchscreen_T100_Init();
+}
+
+static void pan_pmode_calibration_timer_func(unsigned long data)
+{
+	queue_work(pan_pmode_work_queue, &pan_pmode_calibration_wq);
+}
+
+static void pan_pmode_finger_recovery_disable_timer_func(unsigned long data)
+{
+	queue_work(pan_pmode_work_queue, &pan_pmode_finger_recovery_disable_wq);
+}
+
+void pan_pmode_finger_recovery_disable_wq_func(struct work_struct * p)
+{
+	acquisition_config.atchcalst = obj_acquisition_config_t8[mTouch_mode].atchcalst;
+	acquisition_config.atchcalsthr = obj_acquisition_config_t8[mTouch_mode].atchcalsthr;
+			
+	if (write_acquisition_T8_config(acquisition_config) != CFG_WRITE_OK)
+	{
+		dbg_cr("%s: write_acquisition_T8_config error\n", __func__);
+	}
+	dbg_touch("Disable finger recovery calibration.....\n");	
+}
+
+static void pan_check_ghost_touch(void)
+{
+	int event_cnt = 0;
+	int i;
+	int prev_release_index = -1;
+	int prev_move_index = -1;
+	int release_cnt = 0;
+	int prev_release_cnt = 0;
+
+	// Check Touch event count
+	for(i = 0; i < MAX_NUM_FINGER; i++){
+		if ( curr_fingerInfo[i].status == -1 || (curr_fingerInfo[i].mode == TSC_EVENT_NONE && curr_fingerInfo[i].status == TOUCH_EVENT_RELEASE))
+			continue;
+		event_cnt++;
+	}
+
+	for(i = 0; i < MAX_NUM_FINGER; i ++){
+		if(prev_fingerInfo[i].status == TOUCH_EVENT_RELEASE){
+			prev_release_index = i;
+			prev_release_cnt++;
+		}else if(prev_fingerInfo[i].status == TOUCH_EVENT_MOVE){
+			prev_move_index= i;
+		}
+	}	
+
+	dbg_touch("event_cnt : %d, prev_release_index : %d, prev_move_index : %d\n", event_cnt, prev_release_index, prev_move_index);
+
+	if(event_cnt > 0)
+	{
+		// Find last touch index
+		for(i = 0; i < MAX_NUM_FINGER; i++){
+			if((curr_fingerInfo[i].status == TOUCH_EVENT_PRESS) ||
+				(curr_fingerInfo[i].status == TOUCH_EVENT_RELEASE) ||
+				(curr_fingerInfo[i].status == TOUCH_EVENT_MOVE))
+			{
+				curr_last_touch_index = i;
+			}
+		}
+
+		dbg_touch("Last current touch index : %d\n", curr_last_touch_index);
+
+		// Check first touch event 
+		if((first_touch == 1)&&((curr_fingerInfo[0].status == TOUCH_EVENT_PRESS)||(curr_fingerInfo[0].status == TOUCH_EVENT_MOVE)))
+		{
+			first_touch = 0;
+			dbg_touch("Check Time CAL Time(sec : %ld, usec : %ld), Current Time(sec : %ld, usec : %ld)\n",
+				touch_time_stamp[TIME_CAL].tv_sec, touch_time_stamp[TIME_CAL].tv_usec,
+				ghost_chk_time_stamp[0][TIME_CURRENT_TIME].tv_sec, ghost_chk_time_stamp[0][TIME_CURRENT_TIME].tv_usec);
+			
+			if(chk_time_interval(ghost_chk_time_stamp[0][TIME_CURRENT_TIME], touch_time_stamp[TIME_CAL], FIRST_TOUCH_CHECK_TIME))
+			{
+				// If first touch detect under 500ms, will detect ghost touch.
+				find_ghost_touch_count++;
+				detect_touch_first = 1;
+				dbg_touch("If first touch detect under 500ms, will detect ghost touch(find_ghost_touch_count : %d).\n", find_ghost_touch_count);
+			}				
+		}
+
+		dbg_touch("detect_touch_first : %d\n", detect_touch_first);
+
+		// Ghost Check
+		if((curr_fingerInfo[curr_last_touch_index].status == TOUCH_EVENT_PRESS) /*|| (curr_fingerInfo[curr_last_touch_index].status == TOUCH_EVENT_MOVE)*/)
+		{
+			if((prev_release_index != -1) && (prev_fingerInfo[prev_release_index].status == TOUCH_EVENT_RELEASE)){
+				if(chk_time_interval(ghost_chk_time_stamp[curr_last_touch_index][TIME_CURRENT_TIME],
+					ghost_chk_time_stamp[prev_release_index][TIME_PREV_TIME], GHOST_DETECT_TIME) == true)
+				{
+					if(((gap_of_position(curr_fingerInfo[curr_last_touch_index].x, prev_fingerInfo[prev_release_index].x) >= 100)||
+						(gap_of_position(curr_fingerInfo[curr_last_touch_index].y, prev_fingerInfo[prev_release_index].y) >= 100)))
+					{
+						// Save Ghost touch ID, Set Calibration flag
+						if(detect_touch_first == 1)
+						{
+							find_ghost_touch_count++;
+							dbg_touch("Detect Ghost Touch....Change Ghost detect time_1(find_ghost_touch_count : %d)\n", find_ghost_touch_count);
+						}
+					}
+				}
+			}
+			else if((prev_move_index != -1) && (prev_fingerInfo[prev_move_index].status == TOUCH_EVENT_MOVE)){
+				if(chk_time_interval(ghost_chk_time_stamp[curr_last_touch_index][TIME_CURRENT_TIME],
+					ghost_chk_time_stamp[prev_move_index][TIME_PREV_TIME], GHOST_DETECT_TIME) == true)
+				{				
+					if(((gap_of_position(curr_fingerInfo[curr_last_touch_index].x, prev_fingerInfo[prev_move_index].x) >= 100)||
+						(gap_of_position(curr_fingerInfo[curr_last_touch_index].y, prev_fingerInfo[prev_move_index].y) >= 100)))
+					{
+						// Save Ghost touch ID, Set Calibration flag
+						if(detect_touch_first == 1)
+						{
+							find_ghost_touch_count++;
+							dbg_touch("Detect Ghost Touch....Change Ghost detect time_2(find_ghost_touch_count : %d)\n", find_ghost_touch_count);
+						}
+					}
+				}
+			}
+		}
+
+		if(curr_last_touch_index > prev_last_touch_index)
+		{
+			if((prev_fingerInfo[prev_last_touch_index].status == TOUCH_EVENT_MOVE)&&
+				(curr_fingerInfo[prev_last_touch_index].status == TOUCH_EVENT_MOVE)&&
+				((curr_fingerInfo[curr_last_touch_index].status == TOUCH_EVENT_PRESS)||
+				(curr_fingerInfo[curr_last_touch_index].status == TOUCH_EVENT_RELEASE)))
+			{
+				if(((gap_of_position(curr_fingerInfo[curr_last_touch_index].x, curr_fingerInfo[prev_last_touch_index].x) >= 100)||
+					(gap_of_position(curr_fingerInfo[curr_last_touch_index].y, curr_fingerInfo[prev_last_touch_index].y) >= 100)))
+				{
+					// Save Ghost touch ID, Set Calibration flag
+					if(detect_touch_first == 1)
+					{
+						find_ghost_touch_count++;
+						dbg_touch("Detect Ghost Touch....Change Ghost detect time(find_ghost_touch_count : %d)\n", find_ghost_touch_count);
+					}
+				}
+			}
+		}
+			
+		for(i = 0; i < MAX_NUM_FINGER; i++)
+		{
+			memcpy(&prev_fingerInfo[i], &curr_fingerInfo[i], sizeof(curr_fingerInfo[i]));
+			
+			if(curr_fingerInfo[i].status == TOUCH_EVENT_RELEASE){
+				curr_fingerInfo[i].mode = TSC_EVENT_NONE;
+				curr_fingerInfo[i].status = -1;
+				release_cnt++;
+			}
+				
+			memcpy(&ghost_chk_time_stamp[i][TIME_PREV_TIME], &ghost_chk_time_stamp[i][TIME_CURRENT_TIME],
+				sizeof(ghost_chk_time_stamp[i][TIME_CURRENT_TIME]));
+			memset(&ghost_chk_time_stamp[i][TIME_CURRENT_TIME], 0, sizeof(ghost_chk_time_stamp[i][TIME_CURRENT_TIME]));
+		}
+			
+		prev_last_touch_index = curr_last_touch_index;
+
+	}	
+
+	if((detect_touch_first == 1) && ((event_cnt == release_cnt) ||
+		(event_cnt == 0) || (((prev_release_cnt > 0)||
+		(release_cnt > 0))&&(find_ghost_touch_count > 0))))
+	{
+		dbg_touch("Calibration.....(detect_touch_first : %d, event_cnt : %d, release_cnt : %d)\n", detect_touch_first, event_cnt, release_cnt);
+		if((event_cnt == release_cnt)||(event_cnt == 0))
+		{
+			detect_touch_first = 0;
+			dbg_touch("Clear detech_detect_first variable\n");
+		}
+		calibrate_chip();
+		clear_event(TSC_CLEAR_ALL);			
+	}
+	
+}
+
+static void pan_check_anti_touch(uint8_t *quantum_msg)
+{
+	uint8_t anti_touch_ratio = 0;
+
+	debugInfo.scr_status = quantum_msg[1];
+	debugInfo.numrpt_ch = quantum_msg[2];
+	debugInfo.tch_ch = (quantum_msg[4] << 8) | quantum_msg[3];
+	debugInfo.atch_ch = (quantum_msg[6] << 8) | quantum_msg[5];
+	debugInfo.inntch_ch = (quantum_msg[8]<<8) | quantum_msg[7];
+
+	if(debugInfo.atch_ch != 0)
+	{
+		anti_touch_ratio = (debugInfo.atch_ch*100)/(debugInfo.tch_ch + debugInfo.atch_ch);			
+	}
+	else
+	{
+		return;
+	}
+
+	dbg_touch("Touch cnt -> %d, Anti Touch cnt-> %d, INTTHR -> %d, NUMRPTTCH -> %d, SCRSTATUS -> %d, anti_touch_ratio -> %d\n",
+		debugInfo.tch_ch,debugInfo.atch_ch, debugInfo.inntch_ch, debugInfo.numrpt_ch, debugInfo.scr_status, anti_touch_ratio);	
+
+	if((debugInfo.atch_ch+debugInfo.tch_ch) > TOTAL_TOUCH_CNT)
+	{
+		if(anti_touch_ratio >= ANTI_TOUCH_RATIO)
+		{
+			anti_touch_check_cnt++;
+			dbg_touch("Increase anti touch count -> %d\n", anti_touch_check_cnt);
+		}
+		else
+		{
+			if(anti_touch_check_cnt)
+			{
+				anti_touch_check_cnt = 0;
+				dbg_touch("Reset anti touch count -> %d\n", anti_touch_check_cnt);					
+			}
+		}						
+	}
+	else
+	{
+	  	if((debugInfo.tch_ch +10) < debugInfo.atch_ch || (debugInfo.atch_ch > debugInfo.tch_ch *3) ){
+			dbg_touch("[PMODE] Touch event after touch calibration. touch -> %d, anti -> %d\n",debugInfo.tch_ch,debugInfo.atch_ch);
+			anti_touch_check_cnt++;
+			dbg_touch("Increase anti touch count_1 -> %d\n", anti_touch_check_cnt);
+		}else{
+		
+		}
+	}
+}
+#endif
 
 //++ p11309 - 2013.07.30 for direct set smart cover - add 2013.08.26 check hallic vs ui state.
 #ifdef PAN_SUPPORT_SMART_COVER
@@ -598,9 +959,11 @@ static long ts_fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 					mTouch_mode = arg;
 
         			reset_touch_config();
+#ifdef PAN_TOUCH_CAL_PMODE					
         	if(pan_pmode_resume_cal){
         	  pan_touch_protection_mode();
         	}
+#endif			
 					dbg_cr("[touch_monitor] Suspend Touch Mode selection is %d\n", mTouch_mode);
 				}
 				else
@@ -608,9 +971,11 @@ static long ts_fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 					mTouch_mode = arg;
         			disable_irq(mxt_fw30_data->client->irq);
 					reset_touch_config();
+#ifdef PAN_TOUCH_CAL_PMODE										
 					if(pan_pmode_resume_cal){
         	  pan_touch_protection_mode();
         	}
+#endif					
 					enable_irq(mxt_fw30_data->client->irq);
 
 					dbg_cr("[touch_monitor] Touch Mode selection is %d\n", mTouch_mode);
@@ -622,13 +987,14 @@ static long ts_fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg
 		else if ( arg == 10 || arg == 11 ) {
 			mTouch_cover_status_ui = arg - 10;
 		//++ add 2013.08.26 check hallic vs ui state.
-			mTouch_cover_status_hallic = mTouch_cover_status_ui;
     // ++ p13106 for calibrate_chip when smart cover open.
-      if(mTouch_cover_status_hallic == TOUCH_COVER_OPENED){
+			if(mTouch_cover_status_ui == TOUCH_COVER_OPENED){
         calibrate_chip();
       }
     // -- p13106 for calibrate_chip when smart cover open.
-      
+			if(mTouch_cover_status_hallic!= mTouch_cover_status_ui){
+				mTouch_cover_status_hallic = mTouch_cover_status_ui;				
+      }
       if ( touch_probe_state == 1 )
 				del_timer_sync(&pan_hallic_ui_sync_timer);
 		//--
@@ -949,11 +1315,13 @@ static ssize_t write(struct file *file, const char *buf, size_t count, loff_t *p
 #ifdef PAN_SUPPORT_SMART_COVER
 			else if ( i == 10 || i == 11 ) {
 				mTouch_cover_status_ui = i - 10;
+				if(mTouch_cover_status_hallic != mTouch_cover_status_ui){
 			//++ add 2013.08.26 check hallic vs ui state.
 				mTouch_cover_status_hallic = mTouch_cover_status_ui;
       // ++ p13106 for calibrate_chip when smart cover open.
         if(mTouch_cover_status_hallic == TOUCH_COVER_OPENED){
           calibrate_chip();
+        }
         }
       // -- p13106 for calibrate_chip when smart cover open.
         if ( touch_probe_state == 1 )
@@ -1148,17 +1516,21 @@ static long ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		      wake_lock_timeout(&touch_pen_wakelock,msecs_to_jiffies(TOUCH_MODE_CHANGE_WAKELOCK_TIMEOUT));
 		      mTouch_mode = arg;
         	reset_touch_config();
+#ifdef PAN_TOUCH_CAL_PMODE								
         	if(pan_pmode_resume_cal){
         	  pan_touch_protection_mode();
         	}
+#endif			
           dbg_cr("[touch_monitor] Suspend Touch Mode selection is %d\n", mTouch_mode);
 		    }else{		    
 			    mTouch_mode = arg;
         	disable_irq(mxt_fw30_data->client->irq);
           reset_touch_config();
+#ifdef PAN_TOUCH_CAL_PMODE							  
           if(pan_pmode_resume_cal){
         	  pan_touch_protection_mode();
         	}
+#endif		  
           enable_irq(mxt_fw30_data->client->irq);
 			    dbg_cr("[touch_monitor] Touch Mode selection is %d\n", mTouch_mode);
 			  }
@@ -1169,12 +1541,15 @@ static long ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		else if ( arg == 10 || arg == 11 ) {
 			mTouch_cover_status_ui = arg - 10;
 			//++ add 2013.08.26 check hallic vs ui state.
-			mTouch_cover_status_hallic = mTouch_cover_status_ui;
+
     // ++ p13106 for calibrate_chip when smart cover open.
-      if(mTouch_cover_status_hallic == TOUCH_COVER_OPENED){
+			if(mTouch_cover_status_ui == TOUCH_COVER_OPENED){
         calibrate_chip();
       }
     // -- p13106 for calibrate_chip when smart cover open.
+			if(mTouch_cover_status_hallic != mTouch_cover_status_ui){
+			mTouch_cover_status_hallic = mTouch_cover_status_ui;
+      }
       if ( touch_probe_state == 1 )
 				del_timer_sync(&pan_hallic_ui_sync_timer);
 			//--
@@ -2820,6 +3195,12 @@ void touch_data_init(void)
 		fingerInfo[i].mode = TSC_EVENT_NONE;
 		fingerInfo[i].status = -1;
 		fingerInfo[i].area = 0;
+#ifdef PAN_TOUCH_DETECT_GHOST	
+		prev_fingerInfo[i].mode = TSC_EVENT_NONE;
+		prev_fingerInfo[i].status = -1;
+		prev_fingerInfo[i].area = 0;
+		ghost_touch_flag[i] = 0;
+#endif
 		keyInfo[i].update = false;
 		input_mt_slot(mxt_fw30_data->input_dev, i);						// TOUCH_ID_SLOT
 		input_report_abs(mxt_fw30_data->input_dev, ABS_MT_TRACKING_ID, -1);		// RELEASE TOUCH_ID					
@@ -3204,6 +3585,23 @@ void  clear_event(uint8_t clear)
 			fingerInfo[i].mode = TSC_EVENT_NONE;
 			fingerInfo[i].status = -1;
 			fingerInfo[i].area = 0;
+			
+#ifdef PAN_TOUCH_DETECT_GHOST
+			prev_fingerInfo[i].mode = TSC_EVENT_NONE;
+			prev_fingerInfo[i].x = 0;
+			prev_fingerInfo[i].y = 0;
+			prev_fingerInfo[i].status = -1;
+			prev_fingerInfo[i].area = 0;
+			
+			curr_fingerInfo[i].mode = TSC_EVENT_NONE;
+			curr_fingerInfo[i].x = 0;
+			curr_fingerInfo[i].y = 0;			
+			curr_fingerInfo[i].status = -1;
+			curr_fingerInfo[i].area = 0;
+			
+			first_touch = 1;
+			ghost_touch_flag[i] = 0;
+#endif
 			keyInfo[i].update = false; 
 		}     
 	}
@@ -3212,10 +3610,11 @@ void  clear_event(uint8_t clear)
 
 #ifdef PAN_TOUCH_CAL_PMODE
 void pan_touch_protection_mode(void){
-  dbg_cr("pan_touch_protection_mode set\n");
+  dbg_touch("pan_touch_protection_mode set\n");
   
   //2014.3.27 P13106 T8 TOUCH Auto Cal & Recal 
-  acquisition_config.tchautocal= PAN_PMODE_TCHAUTOCAL;
+ #ifndef PAN_TOUCH_DETECT_GHOST
+  	acquisition_config.tchautocal= PAN_PMODE_TCHAUTOCAL;
 	acquisition_config.atchcalst = PAN_PMODE_ATCHCALST;
 	acquisition_config.atchcalsthr = PAN_PMODE_ATCHCALSTHR;
 	acquisition_config.atchfrccalthr = PAN_PMODE_ATCHFRCCALTHR;
@@ -3224,16 +3623,8 @@ void pan_touch_protection_mode(void){
 	if (write_acquisition_T8_config(acquisition_config) != CFG_WRITE_OK) {
 		dbg_cr("write_acquisition_T8_config error\n");
 	}
-/*  
- //2014.3.27 P13106 T100 TOUCH THRESHOLD SET INTTHRESHOLD VALUE.
-  if(mTouch_mode==0){
-    touchscreen_config.tchthr = obj_multi_touch_t100[mTouch_mode].intthr;
-  	touchscreen_config.tchhyst= obj_multi_touch_t100[mTouch_mode].intthrhyst;
-  	if (write_multitouchscreen_T100_config(0, touchscreen_config) != CFG_WRITE_OK){
-  		dbg_cr("mxt_Multitouchscreen_config Error!!!\n");
-  	}
-	}
-*/
+#endif
+
   //2014.3.27 p13106 disable T42 touch suppression.
   if(touchsuppression_t42_config.ctrl != 0){
     touchsuppression_t42_config.ctrl = 0;
@@ -3242,7 +3633,6 @@ void pan_touch_protection_mode(void){
 			  dbg_cr("T42 Configuration Fail!!! , Line %d \n", __LINE__);		
 	  }
 	}
-//#if defined(CONFIG_MACH_MSM8974_EF56S) ||	defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L) 
 	//2014.3.27 p13106 disable T80 touch suppression.
   if(retransmissioncompensation_t80_config.ctrl != 0){
   	retransmissioncompensation_t80_config.ctrl = 0;
@@ -3251,7 +3641,6 @@ void pan_touch_protection_mode(void){
   			dbg_cr("T80 Configuration Fail!!! , Line %d \n\r", __LINE__);
   	}
 	}
-//#endif
 }
 
 #endif
@@ -3271,15 +3660,7 @@ void cal_maybe_good(void)
 #ifdef PAN_TOUCH_CAL_PMODE
 			cal_correction_limit = 5;
 #endif
-/*      
-//++ p11309 - 2014.01.02 for Preventing from Reverse Acceleration 
-      touchscreen_config.ctrl= obj_multi_touch_t100[mTouch_mode].ctrl;
-      touchscreen_config.scraux = obj_multi_touch_t100[mTouch_mode].scraux;
-      if (write_multitouchscreen_T100_config(0, touchscreen_config) != CFG_WRITE_OK){
-        dbg_cr("mxt_Multitouchscreen_config Error!!!\n");
-      }      
-//-- p11309
-      */
+
 			/* Write back the normal acquisition config to chip. */
 			acquisition_config.atchcalst = obj_acquisition_config_t8[mTouch_mode].atchcalst;
 			acquisition_config.atchcalsthr = obj_acquisition_config_t8[mTouch_mode].atchcalsthr;
@@ -3555,7 +3936,7 @@ int get_message_T100(uint8_t *quantum_msg, unsigned int *touch_status)
 	uint8_t touch_type = 0, touch_event = 0, touch_detect = 0, check_press=0, check_release=0, id =0;
 	unsigned long x=0, y=0;
 	int size=0;
-
+	
 	/* Treat screen messages */
 	if (quantum_msg[0] < MXT_T100_SCREEN_MESSAGE_NUM_RPT_ID) {
 		if (quantum_msg[0] == MXT_T100_SCREEN_MSG_FIRST_RPT_ID)
@@ -3563,10 +3944,23 @@ int get_message_T100(uint8_t *quantum_msg, unsigned int *touch_status)
 				quantum_msg[0], quantum_msg[1], (quantum_msg[3] << 8) | quantum_msg[2],
 				(quantum_msg[5] << 8) | quantum_msg[4],
 				(quantum_msg[7] << 8) | quantum_msg[6]);
-//++ p11309 - 2014.01.02 for Preventing from Reverse Acceleration 
-			debugInfo.tch_ch = (quantum_msg[3] << 8) | quantum_msg[2];
-			debugInfo.atch_ch = (quantum_msg[5] << 8) | quantum_msg[4];
-			dbg_cr("Touch cnt -> %d, Anti Touch cnt-> %d\n",debugInfo.tch_ch,debugInfo.atch_ch);
+#ifdef PAN_TOUCH_CAL_PMODE				
+      //2014.04.25 p13106 for check suppression when touch protection ends.
+			if(!mflag_touch_good_check && !pan_pmode_check_sup_flag &&pan_pmode_check_sup_start_flag && (quantum_msg[1] & 0x40)){
+			  dbg_cr("[PMOCE] Touch Suppression. start.\n");
+        pan_pmode_check_sup_flag=true;
+        mod_timer(&pan_pmode_check_sup_timer, jiffies + 
+				  msecs_to_jiffies(PAN_PMODE_CHECK_SUP_TIME));
+			}else if(!mflag_touch_good_check && pan_pmode_check_sup_flag && !(quantum_msg[1] & 0x40)){
+			  dbg_cr("[PMOCE] Touch UnSuppression.\n");
+        pan_pmode_check_sup_flag=false;
+			  del_timer_sync(&pan_pmode_check_sup_timer);	
+			}  
+#endif			
+//++ p11309 - 2014.01.02 for Preventing from Reverse Acceleration
+#ifdef PAN_TOUCH_DETECT_GHOST
+		pan_check_anti_touch(quantum_msg);
+#endif
 //-- p11309	
 		return MESSAGE_READ_FAILED;
 	}
@@ -3590,6 +3984,10 @@ int get_message_T100(uint8_t *quantum_msg, unsigned int *touch_status)
 		if(touch_detect) {
 			check_press = 1;
 
+#ifdef PAN_TOUCH_DETECT_GHOST
+			do_gettimeofday(&touch_time_stamp[TIME_CURRENT_TIME]);
+#endif
+
 #ifdef PAN_TOUCH_CAL_PMODE
 			if(debugInfo.autocal_flag==1){	
 			  if(touch_event==MXT_T100_EVENT_DOWN){ // After touch calibration, first touch press event.
@@ -3600,16 +3998,6 @@ int get_message_T100(uint8_t *quantum_msg, unsigned int *touch_status)
   						PAN_PMODE_AUTOCAL_ENABLE_TIME);
   					mod_timer(&pan_pmode_autocal_timer, jiffies + 
   						msecs_to_jiffies(PAN_PMODE_AUTOCAL_ENABLE_TIME));
-  				/*
-  				acquisition_config.atchcalst = obj_acquisition_config_t8[mTouch_mode].atchcalst;
-  				acquisition_config.atchcalsthr = obj_acquisition_config_t8[mTouch_mode].atchcalsthr;
-  				acquisition_config.atchfrccalthr = obj_acquisition_config_t8[mTouch_mode].atchfrccalthr;
-  				acquisition_config.atchfrccalratio = obj_acquisition_config_t8[mTouch_mode].atchfrccalratio;
-
-  				if (write_acquisition_T8_config(acquisition_config) != CFG_WRITE_OK) {
-  					dbg_cr("%s: write_acquisition_T8_config error\n", __func__);
-  				}
-  				*/
 				}else{
 				  dbg_touch("Move Event after touch calibration\n");
 				}
@@ -3618,15 +4006,9 @@ int get_message_T100(uint8_t *quantum_msg, unsigned int *touch_status)
 		}
 		else {
 			if (touch_event == MXT_T100_EVENT_UP || touch_event == MXT_T100_EVENT_SUPPRESS) {
-			  if(touch_event == MXT_T100_EVENT_SUPPRESS && pan_pmode_resume_cal){
-				  dbg_cr(" Touch Suppress! calibrate_chip!!\n\n\n");
-				  //calibrate_chip();
-				}
-        
 				fingerInfo[id].status= 0;
 				dbg_op(" TOUCH_RELEASE || TOUCH_SUPPRESS !!, 0x%x\n", touch_event);
 				check_release = 1;
-	
 			} else {
 				dbg_cr("Untreated Undetectd touch : type[%d], event[%d]\n",
 				touch_type, touch_event);
@@ -3687,6 +4069,12 @@ int get_message_T100(uint8_t *quantum_msg, unsigned int *touch_status)
 		fingerInfo[id].status= TOUCH_EVENT_RELEASE;
 		*touch_status=TOUCH_EVENT_RELEASE;
 		fingerInfo[id].area= 0;
+
+#ifdef PAN_TOUCH_DETECT_GHOST
+		memcpy(&curr_fingerInfo[id], &fingerInfo[id], sizeof(fingerInfo[id]));
+		do_gettimeofday(&ghost_chk_time_stamp[id][TIME_CURRENT_TIME]);
+#endif		
+
 		dbg_touch("#####[%d] Touch[%d] Up (%d,%d) size (%d)\n",touch_type, id, fingerInfo[id].x, fingerInfo[id].y , fingerInfo[id].area);
 	}
 	else if ( touch_event == MXT_T100_EVENT_MOVE )  
@@ -3697,6 +4085,12 @@ int get_message_T100(uint8_t *quantum_msg, unsigned int *touch_status)
 		fingerInfo[id].x= (int16_t)x;
 		fingerInfo[id].y= (int16_t)y;
 		fingerInfo[id].area= size;
+
+#ifdef PAN_TOUCH_DETECT_GHOST
+		memcpy(&curr_fingerInfo[id], &fingerInfo[id], sizeof(fingerInfo[id]));
+		do_gettimeofday(&ghost_chk_time_stamp[id][TIME_CURRENT_TIME]);
+#endif		
+
 		dbg_touch("#####[%d] Touch[%d] Move (%d,%d) size (%d)\n ",touch_type, id, fingerInfo[id].x, fingerInfo[id].y, fingerInfo[id].area );
 	}
 	else if ( touch_event == MXT_T100_EVENT_DOWN || touch_event == MXT_T100_EVENT_UNSUPPRESS )
@@ -3707,6 +4101,12 @@ int get_message_T100(uint8_t *quantum_msg, unsigned int *touch_status)
 		fingerInfo[id].x= (int16_t)x;
 		fingerInfo[id].y= (int16_t)y;
 		fingerInfo[id].area= size;
+
+#ifdef PAN_TOUCH_DETECT_GHOST
+		memcpy(&curr_fingerInfo[id], &fingerInfo[id], sizeof(fingerInfo[id]));
+		do_gettimeofday(&ghost_chk_time_stamp[id][TIME_CURRENT_TIME]);
+#endif
+		
 		dbg_touch("#####[%d] Touch[%d] Down (%d,%d) size (%d)\n",touch_type, id, fingerInfo[id].x, fingerInfo[id].y, fingerInfo[id].area );
 
 		if(touch_event == MXT_T100_EVENT_UNSUPPRESS){
@@ -3744,20 +4144,6 @@ int get_message_T100(uint8_t *quantum_msg, unsigned int *touch_status)
 #endif
 //-- p11309
 
-#ifdef PAN_TOUCH_CAL_PMODE
-	/* touch_message_flag - set when tehre is a touch message
-	   facesup_message_flag - set when there is a face suppression message */
-	// check chip's calibration status when touch down or up
-	/*
-	if(cal_check_flag == 1 && (fingerInfo[id].status == TOUCH_EVENT_PRESS)) {
-		if (mxt_time_point == 0) 
-			mxt_time_point = jiffies_to_msecs(jiffies);
-		cal_correction_limit = 0;
-		check_chip_calibration();
-	}
-	*/
-#endif
-
  return MESSAGE_READ_OK;
 }
 
@@ -3773,49 +4159,56 @@ void get_message_T6(uint8_t *quantum_msg){
 		dbg_op_err("T6 in Acquisition Error.\n");
 	}
 	if(quantum_msg[1] & 0x10) {
-
-#ifdef PAN_TOUCH_CAL_PMODE 			
-		
 		dbg_touch("[PMODE] Received Calibration Message\n");
 
+#ifdef PAN_TOUCH_DETECT_GHOST
+		do_gettimeofday(&touch_time_stamp[TIME_CAL]);
+		anti_touch_check_cnt = 0;
+		find_ghost_touch_count = 0;
+//		detect_touch_first = 0;
+		
+			mod_timer(&pan_pmode_calibration_timer, jiffies + 
+				msecs_to_jiffies(PAN_PMODE_CALIBRATION_TIME));	
+#endif
+
+#ifdef PAN_TOUCH_CAL_PMODE 			
 		cal_check_flag=1u;
 		mxt_time_point = 0;
-
+		pan_pmode_resume_cal=true;    
 		debugInfo.calibration_cnt++;
 		
-    //2014.3.27 p13106
-		//cancel_work_sync(&pan_pmode_antical_wq);
-		//del_timer(&pan_pmode_antical_timer);
-
 		if(debugInfo.autocal_flag) {
 			dbg_touch("[PMODE] Autocal enabled...Auto cal timer refresh.\n");
 			cancel_work_sync(&pan_pmode_autocal_wq);
 			del_timer(&pan_pmode_autocal_timer);
 		}
-		/*
+		
+
+  	//2014.04.25 p13106 for check suppression when touch protection ends.
+  	if(pan_pmode_check_sup_flag){
+      del_timer_sync(&pan_pmode_check_sup_timer);	
+  	}  	
+  	pan_pmode_check_sup_flag=false;
+  	pan_pmode_check_sup_start_flag=false;  	  
+		
 //++ p11309 - 2014.01.02 for Preventing from Reverse Acceleration 
+#ifdef PAN_TOUCH_DETECT_GHOST
     touchscreen_config.ctrl = 131;
-		touchscreen_config.scraux = 6;
+		touchscreen_config.scraux = 15;
 		if (write_multitouchscreen_T100_config(0, touchscreen_config) != CFG_WRITE_OK){
 			dbg_cr("mxt_Multitouchscreen_config Error!!!\n");
 		}
+		mflag_touch_good_check=false;
+		mod_timer(&pan_pmode_touch_good_check_timer, jiffies + 
+			msecs_to_jiffies(TOUCH_GOOD_CHECK));
+			
+#endif
 //-- p11309
-    */
     pan_touch_protection_mode();
     cal_correction_limit = 5;
   	pan_pmode_resume_cal = true;
   	debugInfo.autocal_flag=1;
-  	//2014.3.27 P13106
-  	/*
-		if(!pan_pmode_resume_cal){			
-			dbg_touch("[PMODE] PROTECTION MODE Timer - T6 Cmd %d msec\n", 
-				PAN_PMODE_AUTOCAL_ENABLE_TIME);
-			mod_timer(&pan_pmode_autocal_timer, jiffies + 
-				msecs_to_jiffies(PAN_PMODE_AUTOCAL_ENABLE_TIME));
-		}
-		*/
 
-		
 #endif
 	}   
 	if(quantum_msg[1] & 0x08 ) {
@@ -4209,6 +4602,11 @@ void  get_message(struct work_struct * p)
 	}
 	}
 
+#ifdef PAN_TOUCH_DETECT_GHOST
+  if(!mflag_touch_good_check)
+		pan_check_ghost_touch();
+#endif
+
 fail_to_read_reg:
 	enable_irq(mxt_fw30_data->client->irq);
 	mutex_unlock(&mxt_fw30_data->lock);	
@@ -4334,33 +4732,8 @@ void report_input (int touch_status) {
 			dbg_cr("[PMODE] Protection Mode complete..\n");
 			pan_pmode_resume_cal = false;
 
-			//2014.3.27 P13106 Enable Touch Suppression
-			if(touchsuppression_t42_config.ctrl != obj_touch_suppression_t42[mTouch_mode].ctrl){
-  			touchsuppression_t42_config.ctrl = obj_touch_suppression_t42[mTouch_mode].ctrl;
-        if (get_object_address(PROCI_TOUCHSUPPRESSION_T42, 0) != OBJECT_NOT_FOUND){
-  		    if (write_touch_suppression_T42_config(touchsuppression_t42_config) != CFG_WRITE_OK)
-  			    dbg_cr("T42 Configuration Fail!!! , Line %d \n", __LINE__);		
-        }
-      }  
-//#if defined(CONFIG_MACH_MSM8974_EF56S) ||	defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L) 
-      // 2014.3.27 P13106 Enable T80 Retransmission.
-      if(retransmissioncompensation_t80_config.ctrl != obj_retransmissioncompensation_t80[mTouch_mode].ctrl){
-        retransmissioncompensation_t80_config.ctrl = obj_retransmissioncompensation_t80[mTouch_mode].ctrl;     
-        if (get_object_address(PROCI_RETRANSMISSIONCOMPENSATION_T80, 0) != OBJECT_NOT_FOUND) {
-      		if (write_retransmissioncompensation_T80_config(retransmissioncompensation_t80_config) != CFG_WRITE_OK)
-      			dbg_cr("T80 Configuration Fail!!! , Line %d \n\r", __LINE__);
-      	}
-      }	
-//#endif    	
-    	// 2014.3.27 P13106 Disable Anti Touch Recalibration
-    	acquisition_config.atchcalst = obj_acquisition_config_t8[mTouch_mode].atchcalst;
-  		acquisition_config.atchcalsthr = obj_acquisition_config_t8[mTouch_mode].atchcalsthr;
-  		acquisition_config.atchfrccalthr = obj_acquisition_config_t8[mTouch_mode].atchfrccalthr;
-  		acquisition_config.atchfrccalratio = obj_acquisition_config_t8[mTouch_mode].atchfrccalratio;
-
-  		if (write_acquisition_T8_config(acquisition_config) != CFG_WRITE_OK) {
-  			dbg_cr("%s: write_acquisition_T8_config error\n", __func__);
-  		}  	
+      //2014.04.25 p13106 for check suppression when touch protection ends.
+      
 		}
 
 		valid_input_count=0;		
@@ -4372,20 +4745,6 @@ void report_input (int touch_status) {
 		// When all finger released (finger_cnt == 0)
 		if (valid_input_count == 0 && cal_correction_limit > 0 && debugInfo.autocal_flag!=1) {
 			cal_correction_limit--;
-			/*
-			2014.3.27 p13106
-			dbg_touch("[PMODE] Antical is on till %d msec\n",
-				PAN_PMODE_ANTICAL_ENABLE_TIME);
-			acquisition_config.atchcalst = PAN_PMODE_ATCHCALST;
-			acquisition_config.atchcalsthr = PAN_PMODE_ATCHCALSTHR;
-			acquisition_config.atchfrccalthr = PAN_PMODE_ATCHFRCCALTHR;
-			acquisition_config.atchfrccalratio = PAN_PMODE_ATCHFRCCALRATIO;
-			if (write_acquisition_T8_config(acquisition_config) != CFG_WRITE_OK) {
-				dbg_cr("\n[TSP][ERROR] line : %d\n", __LINE__);
-			}
-			mod_timer(&pan_pmode_antical_timer, jiffies + 
-				msecs_to_jiffies(PAN_PMODE_ANTICAL_ENABLE_TIME));
-			*/
 		}
 	}
 #endif
@@ -4651,9 +5010,24 @@ static int mxt_suspend(struct i2c_client *client, pm_message_t mesg)
 	dbg_cr("[PMODE] %s: Suspend, remove pmode timer\n", __func__);
 	cancel_work_sync(&pan_pmode_antical_wq);
 	cancel_work_sync(&pan_pmode_autocal_wq);
-//2014.3.27 p13106
-	//del_timer(&pan_pmode_antical_timer);
-	//del_timer(&pan_pmode_autocal_timer);	
+	del_timer(&pan_pmode_autocal_timer);	
+
+	//2014.04.25 p13106 for check suppression when touch protection ends.
+	if(pan_pmode_check_sup_flag){
+	  del_timer(&pan_pmode_check_sup_timer);	
+	  mxt_Multitouchscreen_T100_Init();
+	  pan_pmode_check_sup_flag=false;  	  
+	}	
+#endif
+
+#ifdef PAN_TOUCH_DETECT_GHOST
+	cancel_work_sync(&pan_pmode_calibration_wq);
+	del_timer(&pan_pmode_calibration_timer);	
+
+	if(!mflag_touch_good_check){
+	  cancel_work_sync(&pan_pmode_touch_good_check_wq);
+	  del_timer(&pan_pmode_touch_good_check_timer);
+	}  
 #endif
 
 	if(mxt_fw30_data->state == SUSMODE){
@@ -4713,6 +5087,11 @@ static int mxt_resume(struct i2c_client *client)
 
 #endif
 //-- p11309
+#ifdef PAN_TOUCH_DETECT_GHOST
+  mflag_touch_good_check=false;
+	pan_pmode_check_sup_flag=false;
+  pan_pmode_check_sup_start_flag=false;  	  
+#endif
 
 	enable_irq(mxt_fw30_data->client->irq);
 	mxt_fw30_data->state = APPMODE;
@@ -4827,6 +5206,10 @@ static int __devinit mxt_probe(struct i2c_client *client, const struct i2c_devic
 	
 #endif // SKY_PROCESS_CMD_KEY
 
+#if defined(CONFIG_MACH_MSM8974_EF65S) || defined(CONFIG_MACH_MSM8974_EF69K) || defined(CONFIG_MACH_MSM8974_EF69L)
+	set_bit(KEY_APP_SWITCH, mxt_fw30_data->input_dev->keybit);
+#endif
+
 	input_mt_init_slots(mxt_fw30_data->input_dev, MAX_NUM_FINGER); // PROTOCOL_B
 	input_set_abs_params(mxt_fw30_data->input_dev, ABS_X, 0, SCREEN_RESOLUTION_X, 0, 0);
 	input_set_abs_params(mxt_fw30_data->input_dev, ABS_Y, 0, SCREEN_RESOLUTION_SCREEN_Y, 0, 0);
@@ -4878,9 +5261,9 @@ static int __devinit mxt_probe(struct i2c_client *client, const struct i2c_devic
 
 #ifdef PAN_T15_KEYARRAY_ENABLE
   mPan_KeyArray[0].key_state = false;
-  mPan_KeyArray[0].key_num = KEY_MENU;
+  mPan_KeyArray[0].key_num = PAN_1ST_TOUCH_KEY_TYPE;
   mPan_KeyArray[1].key_state = false;
-  mPan_KeyArray[1].key_num = KEY_BACK;
+  mPan_KeyArray[1].key_num = PAN_2ND_TOUCH_KEY_TYPE;
 #endif
 
     //p16619 keep this code when deleting switch device code
@@ -4903,7 +5286,7 @@ static int __devinit mxt_probe(struct i2c_client *client, const struct i2c_devic
 #ifdef PAN_TOUCH_PEN_DETECT
 #if defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) 
   mxt_fw30_data->pan_touch_pen_state=!gpio_get_value(PAN_TOUCH_PEN_GPIO);
-#elif defined(CONFIG_MACH_MSM8974_EF65S)
+#elif defined(CONFIG_MACH_MSM8974_EF65S) || defined(CONFIG_MACH_MSM8974_EF69K) || defined(CONFIG_MACH_MSM8974_EF69L)
   mxt_fw30_data->pan_touch_pen_state=gpio_get_value(PAN_TOUCH_PEN_GPIO);
 #endif  
   register_notify_func(NORMAL_MODE,"touch_pen_detection",set_pan_touch_state);
@@ -4925,6 +5308,14 @@ static int __devinit mxt_probe(struct i2c_client *client, const struct i2c_devic
   //2014.3.27
 	//INIT_WORK(&pan_pmode_antical_wq, pan_pmode_antical_wq_func);
 	INIT_WORK(&pan_pmode_autocal_wq, pan_pmode_autocal_wq_func);
+	
+
+  //2014.04.25 p13106 for check suppression when touch protection ends.
+  INIT_WORK(&pan_pmode_check_sup_wq, pan_pmode_check_sup_wq_func);
+  init_timer(&pan_pmode_check_sup_timer);
+	pan_pmode_check_sup_timer.function = pan_pmode_check_sup_timer_func;
+	pan_pmode_check_sup_timer.data = 0;
+	
 /*
 	init_timer(&pan_pmode_antical_timer);
 	pan_pmode_antical_timer.function = pan_pmode_antical_timer_func;
@@ -4936,6 +5327,25 @@ static int __devinit mxt_probe(struct i2c_client *client, const struct i2c_devic
 	
 #endif
 //-- p11309
+
+#ifdef PAN_TOUCH_DETECT_GHOST
+	INIT_WORK(&pan_pmode_calibration_wq, pan_pmode_calibration_wq_func);
+	INIT_WORK(&pan_pmode_finger_recovery_disable_wq, pan_pmode_finger_recovery_disable_wq_func);
+
+	init_timer(&pan_pmode_calibration_timer);
+	pan_pmode_calibration_timer.function = pan_pmode_calibration_timer_func;
+	pan_pmode_calibration_timer.data = 0;
+
+	init_timer(&pan_pmode_finger_recovery_disable_timer);
+	pan_pmode_finger_recovery_disable_timer.function = pan_pmode_finger_recovery_disable_timer_func;
+	pan_pmode_finger_recovery_disable_timer.data = 0;	
+
+  INIT_WORK(&pan_pmode_touch_good_check_wq, pan_pmode_touch_good_check_wq_func);
+	init_timer(&pan_pmode_touch_good_check_timer);
+	pan_pmode_touch_good_check_timer.function = pan_pmode_touch_good_check_timer_func;
+	pan_pmode_touch_good_check_timer.data = 0;
+#endif
+
   mxt_fw30_data->client->irq = IRQ_TOUCH_INT;
 	rc = request_irq(mxt_fw30_data->client->irq, mxt_irq_handler, IRQF_TRIGGER_LOW, "mxt_fw30-irq", mxt_fw30_data);
 	if (rc){		
@@ -5173,31 +5583,49 @@ void pan_pmode_autocal_wq_func(struct work_struct * p)
 {
 	
 	dbg_cr("[PMODE] Autocal is disabled\n");
-	acquisition_config.tchautocal = obj_acquisition_config_t8[mTouch_mode].tchautocal;
+	pan_pmode_check_sup_start_flag=true;
+	//2014.3.27 P13106 Enable Touch Suppression
+	if(touchsuppression_t42_config.ctrl != obj_touch_suppression_t42[mTouch_mode].ctrl){
+		touchsuppression_t42_config.ctrl = obj_touch_suppression_t42[mTouch_mode].ctrl;
+    if (get_object_address(PROCI_TOUCHSUPPRESSION_T42, 0) != OBJECT_NOT_FOUND){
+	    if (write_touch_suppression_T42_config(touchsuppression_t42_config) != CFG_WRITE_OK)
+		    dbg_cr("T42 Configuration Fail!!! , Line %d \n", __LINE__);		
+    }
+  }  
+  // 2014.3.27 P13106 Enable T80 Retransmission.
+  if(retransmissioncompensation_t80_config.ctrl != obj_retransmissioncompensation_t80[mTouch_mode].ctrl){
+    retransmissioncompensation_t80_config.ctrl = obj_retransmissioncompensation_t80[mTouch_mode].ctrl;     
+    if (get_object_address(PROCI_RETRANSMISSIONCOMPENSATION_T80, 0) != OBJECT_NOT_FOUND) {
+  		if (write_retransmissioncompensation_T80_config(retransmissioncompensation_t80_config) != CFG_WRITE_OK)
+  			dbg_cr("T80 Configuration Fail!!! , Line %d \n\r", __LINE__);
+  	}
+  }	
 	debugInfo.calibration_cnt=0;
 	debugInfo.autocal_flag=0;
 
+  if(acquisition_config.tchautocal == obj_acquisition_config_t8[mTouch_mode].tchautocal)
+    return;
+	acquisition_config.tchautocal = obj_acquisition_config_t8[mTouch_mode].tchautocal;
 	if (write_acquisition_T8_config(acquisition_config) != CFG_WRITE_OK){
 		dbg_cr("[TOUCH] Configuration Fail!!! , Line %d \n", __LINE__);
 	}	
 }
-/*
-void pan_pmode_antical_wq_func(struct work_struct * p) 
-{
-	
-	dbg_cr("[PMODE] Antical is disabled\n");
-	
-	acquisition_config.atchcalst = obj_acquisition_config_t8[mTouch_mode].atchcalst;
-	acquisition_config.atchcalsthr = obj_acquisition_config_t8[mTouch_mode].atchcalsthr;
-	acquisition_config.atchfrccalthr = obj_acquisition_config_t8[mTouch_mode].atchfrccalthr;
-	acquisition_config.atchfrccalratio = obj_acquisition_config_t8[mTouch_mode].atchfrccalratio;
 
-	if (write_acquisition_T8_config(acquisition_config) != CFG_WRITE_OK)
-	{
-		dbg_cr("[TSP] Configuration Fail!!! , Line %d \n", __LINE__);
-	}
+//2014.04.25 p13106 for check suppression when touch protection ends.
+static void pan_pmode_check_sup_timer_func(unsigned long data)
+{
+  if(!mflag_touch_good_check && pan_pmode_check_sup_flag)
+	  queue_work(pan_pmode_work_queue, &pan_pmode_check_sup_wq);
 }
-*/
+void pan_pmode_check_sup_wq_func(struct work_struct * p){
+  if(!mflag_touch_good_check && pan_pmode_check_sup_flag){
+    dbg_cr("[PMODE] Suppression 1.5s is going on. calibration.\n");
+    calibrate_chip();
+    clear_event(TSC_CLEAR_ALL);
+    pan_pmode_check_sup_start_flag=false;
+  pan_pmode_check_sup_flag=false;
+}
+}
 #endif
 //-- p11309
 

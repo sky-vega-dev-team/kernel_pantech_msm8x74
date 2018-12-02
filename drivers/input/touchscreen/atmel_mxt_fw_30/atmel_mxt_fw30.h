@@ -81,17 +81,24 @@ static int pan_debug_state = PAN_TOUCH_DEBUG_OPERATION_ERR_MASK;
 	#define PAN_TOUCH_CAL_PMODE
 //-- p11309
 
-#elif defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) || defined(CONFIG_MACH_MSM8974_EF65S)
+#elif defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) || defined(CONFIG_MACH_MSM8974_EF65S) || defined(CONFIG_MACH_MSM8974_EF69K) || defined(CONFIG_MACH_MSM8974_EF69L)
+
+
 	#define PAN_TOUCH_PEN_DETECT
 	#define PAN_T15_KEYARRAY_ENABLE
 	#define PAN_SUPPORT_SMART_COVER
 	#define PAN_SUPPORT_SOFT_DEAD_ZONE
 	#define PAN_CHECK_NOISE_MODE_SHAKE
 	#define PAN_TOUCH_KEY_REJECTION_ON_DISPLAY
+
   //++ p11309 - 2013.11.22 for Touch Calibration Revision
 	#define PAN_TOUCH_CAL_COMMON
 	#define PAN_TOUCH_CAL_PMODE
   //-- p11309
+
+  	#if defined(CONFIG_MACH_MSM8974_EF65S)
+	  	#define PAN_TOUCH_DETECT_GHOST	// p13250  
+  	#endif
 
 #elif defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)
 	#define PAN_T15_KEYARRAY_ENABLE
@@ -174,13 +181,22 @@ unsigned char MXT_FW30_E_firmware[] = {
 #define MXT_WAKEUP_TIME		        25	/* msec */
 
 #ifdef PAN_TOUCH_PEN_DETECT
-#if defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) || defined(CONFIG_MACH_MSM8974_EF65S)
+#if defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L) || defined(CONFIG_MACH_MSM8974_EF65S) || defined(CONFIG_MACH_MSM8974_EF69K) || defined(CONFIG_MACH_MSM8974_EF69L)
 #define PAN_TOUCH_PEN_GPIO  79
 #else
 #define PAN_TOUCH_PEN_GPIO  79
 #endif
 #endif
 
+#ifdef PAN_TOUCH_DETECT_GHOST
+enum{
+	TIME_START,
+	TIME_CAL,
+	TIME_PREV_TIME,
+	TIME_CURRENT_TIME,
+	TIME_MAX
+};
+#endif
 
 typedef enum{
 	MXT_T100_TYPE_RESERVED,
@@ -409,6 +425,11 @@ typedef struct
 
 typedef struct 
 {
+#ifdef PAN_TOUCH_DETECT_GHOST
+	uint16_t inntch_ch; /*number of INTTHR channel*/
+	uint16_t numrpt_ch;
+	uint16_t scr_status;
+#endif
 	uint16_t tch_ch; /*number of touch channel*/
 	uint16_t atch_ch; /*number of anti-touch channel*/	
 	uint8_t calibration_cnt; /*number of anti-touch channel*/
@@ -490,7 +511,7 @@ static int model_id = 610;
 #elif defined(CONFIG_MACH_MSM8974_EF59L)
 static int model_id = 620;
 
-#elif defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF65S)
+#elif defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF65S) || defined(CONFIG_MACH_MSM8974_EF69K) || defined(CONFIG_MACH_MSM8974_EF69L)
 static int model_id = 630;
 #elif defined(CONFIG_MACH_MSM8974_EF61K)
 static int model_id = 640;
