@@ -583,9 +583,9 @@ static int PAN_LUT_OFFSET[RGB_MAX] = {
 
 #if defined(CONFIG_MACH_MSM8974_EF65S)
 static int BRIGHTNESS_WEIGHT[RGB_MAX] = {
-	40, //25,		//WS1=60,		/* red, unit is percent */
-	60, //50,		//WS1=35,		/* green */
-	60, //100,	/* blue */
+	80, //40, //25,		//WS1=60,		/* red, unit is percent */
+	50, //30, //50,		//WS1=35,		/* green */
+	120, //80, //60, //100,	/* blue */
 };
 
 static int WHITE_WEIGHT[RGB_MAX] = {
