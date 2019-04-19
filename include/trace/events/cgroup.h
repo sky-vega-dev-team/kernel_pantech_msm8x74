@@ -98,6 +98,20 @@ DEFINE_EVENT(cgroup, cgroup_rename,
 	TP_ARGS(cgroup)
 );
 
+DEFINE_EVENT(cgroup, cgroup_freeze,
+
+	TP_PROTO(struct cgroup *cgroup),
+
+	TP_ARGS(cgroup)
+);
+
+DEFINE_EVENT(cgroup, cgroup_unfreeze,
+
+	TP_PROTO(struct cgroup *cgroup),
+
+	TP_ARGS(cgroup)
+);
+
 DECLARE_EVENT_CLASS(cgroup_migrate,
 
 	TP_PROTO(struct cgroup *dst_cgrp, struct task_struct *task, bool threadgroup),
@@ -135,6 +149,44 @@ DEFINE_EVENT(cgroup_migrate, cgroup_transfer_tasks,
 	TP_PROTO(struct cgroup *dst_cgrp, struct task_struct *task, bool threadgroup),
 
 	TP_ARGS(dst_cgrp, task, threadgroup)
+);
+
+DECLARE_EVENT_CLASS(cgroup_event,
+
+	TP_PROTO(struct cgroup *cgrp, int val),
+
+	TP_ARGS(cgrp, val),
+
+	TP_STRUCT__entry(
+		__field(	int,		root			)
+		__field(	int,		id			)
+		__field(	int,		level			)
+		__field(	int,		val			)
+	),
+
+	TP_fast_assign(
+		__entry->root = cgrp->root->hierarchy_id;
+		__entry->id = cgrp->id;
+		__entry->level = cgrp->level;
+		__entry->val = val;
+	),
+
+	TP_printk("root=%d id=%d level=%d val=%d",
+		  __entry->root, __entry->id, __entry->level, __entry->val)
+);
+
+DEFINE_EVENT(cgroup_event, cgroup_notify_populated,
+
+	TP_PROTO(struct cgroup *cgrp, int val),
+
+	TP_ARGS(cgrp, val)
+);
+
+DEFINE_EVENT(cgroup_event, cgroup_notify_frozen,
+
+	TP_PROTO(struct cgroup *cgrp, int val),
+
+	TP_ARGS(cgrp, val)
 );
 
 #endif /* _TRACE_CGROUP_H */
