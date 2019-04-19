@@ -169,6 +169,9 @@ struct css_set {
 	struct list_head tasks;
 	struct list_head mg_tasks;
 
+	/* internal task count, protected by css_set_lock */
+	int nr_tasks;
+
 	/*
 	 * List of cgrp_cset_links pointing at cgroups referenced from this
 	 * css_set.  Protected by css_set_lock.

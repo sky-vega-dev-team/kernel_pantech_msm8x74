@@ -67,6 +67,8 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/cgroup.h>
 
+#include "cgroup-internal.h"
+
 /*
  * pidlists linger the following amount before being destroyed.  The goal
  * is avoiding frequent destruction in the middle of consecutive read calls
@@ -678,6 +680,7 @@ static void css_set_move_task(struct task_struct *task,
 				css_task_iter_advance(it);
 
 		list_del_init(&task->cg_list);
+		from_cset->nr_tasks--;
 		if (!css_set_populated(from_cset))
 			css_set_update_populated(from_cset, false);
 	} else {
@@ -696,6 +699,7 @@ static void css_set_move_task(struct task_struct *task,
 		cgroup_move_task(task, to_cset);
 		list_add_tail(&task->cg_list, use_mg_tasks ? &to_cset->mg_tasks :
 							     &to_cset->tasks);
+		to_cset->nr_tasks++;
 	}
 }
 
@@ -1851,6 +1855,7 @@ static void cgroup_enable_task_cg_lists(void)
 			if (!css_set_populated(cset))
 				css_set_update_populated(cset, true);
 			list_add_tail(&p->cg_list, &cset->tasks);
+			cset->nr_tasks++;
 			get_css_set(cset);
 		}
 		spin_unlock(&p->sighand->siglock);
@@ -4010,22 +4015,35 @@ void cgroup_file_notify(struct cgroup_file *cfile)
 }
 
 /**
- * cgroup_task_count - count the number of tasks in a cgroup.
+ * __cgroup_task_count - count the number of tasks in a cgroup. The caller
+ * is responsible for taking the css_set_lock.
  * @cgrp: the cgroup in question
- *
- * Return the number of tasks in the cgroup.  The returned number can be
- * higher than the actual number of tasks due to css_set references from
- * namespace roots and temporary usages.
  */
-int cgroup_task_count(const struct cgroup *cgrp)
+int __cgroup_task_count(const struct cgroup *cgrp)
 {
 	int count = 0;
 	struct cgrp_cset_link *link;
 
-	spin_lock_irq(&css_set_lock);
+	lockdep_assert_held(&css_set_lock);
+
 	list_for_each_entry(link, &cgrp->cset_links, cset_link)
-		count += atomic_read(&link->cset->refcount);
+		count += link->cset->nr_tasks;
+
+	return count;
+}
+
+/**
+ * cgroup_task_count - count the number of tasks in a cgroup.
+ * @cgrp: the cgroup in question
+ */
+int cgroup_task_count(const struct cgroup *cgrp)
+{
+	int count;
+
+	spin_lock_irq(&css_set_lock);
+	count = __cgroup_task_count(cgrp);
 	spin_unlock_irq(&css_set_lock);
+
 	return count;
 }
 
