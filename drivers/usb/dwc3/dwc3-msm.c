@@ -3999,12 +3999,12 @@ static int __devinit dwc3_msm_probe(struct platform_device *pdev)
 #ifdef CONFIG_PANTECH_PMIC_SHARED_DATA
 #if defined(CONFIG_MACH_MSM8974_EF59S) || defined(CONFIG_MACH_MSM8974_EF59K) || defined(CONFIG_MACH_MSM8974_EF59L)
 				if(get_oem_hw_rev() >= 4) // in case of EF59 series, usb external id set after TP20
-#elif defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF65S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)
+#elif defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)
 				if(get_oem_hw_rev() >= 1) // in case of EF60 series, usb external id set after WS20
 #elif defined(CONFIG_MACH_MSM8974_EF56S)
 				if(0) // other model(ex, ef56s)
 #else
-				if(1) // other model(ex, ef63 series)
+				if(1) // other model(ex, ef63 series, ef65s)
 #endif
 #else
 #if defined(CONFIG_MACH_MSM8974_EF63S) || defined(CONFIG_MACH_MSM8974_EF63K) || defined(CONFIG_MACH_MSM8974_EF63L) \
