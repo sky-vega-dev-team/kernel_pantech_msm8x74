@@ -93,8 +93,8 @@
 #define OEM_BATTERY_STD_RCOMP		0x51
 #define OEM_BATTERY_EXT_RCOMP		0x51 /*EXT not battery*/
 #elif defined(CONFIG_MACH_MSM8974_EF65S)
-#define OEM_BATTERY_STD_RCOMP		0x5E
-#define OEM_BATTERY_EXT_RCOMP		0x5E /*EXT not battery*/
+#define OEM_BATTERY_STD_RCOMP		0x5D
+#define OEM_BATTERY_EXT_RCOMP		0x5D /*EXT not battery*/
 #else
 #define OEM_BATTERY_STD_RCOMP		0x6A
 #define OEM_BATTERY_EXT_RCOMP		0x6A /*EXT not battery*/

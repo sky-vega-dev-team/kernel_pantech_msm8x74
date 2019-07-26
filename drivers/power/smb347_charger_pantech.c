@@ -537,6 +537,7 @@ EXPORT_SYMBOL_GPL(is_temp_state_changed);
 #define WARM_COOL_FAST  0x39 // FAST 900mA, term 50mA
 #define NORMAL_USBIN 0x16 //USBIN 1.8A
 #define NORMAL_FAST  0xB9 // FAST 2A, term 50mA
+#define T_SENS2_LIMIT_USBIN 0x14 //limit USBIN 1200mA
 #else
 #define WARM_COOL_USBIN 0x15
 #define WARM_COOL_FAST  0x59
@@ -722,8 +723,10 @@ void smb349_t_sense_limit(int mode)
 	smb_data_ext.t_prev_mode = mode;
 	if(smb_data_ext.t_prev_mode) {
 		pr_debug("%s: T_sensor mode limitation On\n", __func__);
-#if defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF65S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)
+#if defined(CONFIG_MACH_MSM8974_EF60S) || defined(CONFIG_MACH_MSM8974_EF61K) || defined(CONFIG_MACH_MSM8974_EF62L)
 		smb349_write_reg(0x00, 0x3A); // FAST 900mA
+#elif defined(CONFIG_MACH_MSM8974_EF65S)		
+		smb349_write_reg(0x01, T_SENS2_LIMIT_USBIN); //USBIN 1.2A
 #else
 		smb349_write_reg(0x01, 0x15); //USBIN 1.5A
 		smb349_write_reg(0x00, 0x59); // FAST 1.2A
