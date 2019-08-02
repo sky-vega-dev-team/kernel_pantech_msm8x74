@@ -294,7 +294,6 @@ static uint8_t cal_correction_limit = 0;
 static bool pan_pmode_resume_cal=false;
 
 struct workqueue_struct *pan_pmode_work_queue;
-struct work_struct pan_pmode_antical_wq;
 struct work_struct pan_pmode_autocal_wq;
 
 //2014.04.25 p13106 for check suppression when touch protection ends.
@@ -307,11 +306,8 @@ void pan_pmode_check_sup_wq_func(struct work_struct * p);
 static void pan_pmode_check_sup_timer_func(unsigned long data);
 
 static struct timer_list pan_pmode_autocal_timer;
-//2014.3.27 p13106
-//static void pan_pmode_antical_timer_func(unsigned long data);
 static void pan_pmode_autocal_timer_func(unsigned long data);
 void pan_pmode_autocal_wq_func(struct work_struct * p);
-void pan_pmode_antical_wq_func(struct work_struct * p);
 void pan_touch_protection_mode(void);
 #endif
 //-- p11309
@@ -5008,7 +5004,6 @@ static int mxt_suspend(struct i2c_client *client, pm_message_t mesg)
 
 #ifdef PAN_TOUCH_CAL_PMODE 
 	dbg_cr("[PMODE] %s: Suspend, remove pmode timer\n", __func__);
-	cancel_work_sync(&pan_pmode_antical_wq);
 	cancel_work_sync(&pan_pmode_autocal_wq);
 	del_timer(&pan_pmode_autocal_timer);	
 
