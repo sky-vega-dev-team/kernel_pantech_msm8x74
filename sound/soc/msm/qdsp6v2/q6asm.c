@@ -4886,8 +4886,10 @@ int q6asm_set_pp_params(struct audio_client *ac, u32 module_id, u32 param_id,
 		rc = -EINVAL;
 		goto fail_cmd;
 	}
+#if (1)	// 2014-05-15 LS3@SND avoid timeout error after qct patch(r2157.1)
 	rc = wait_event_timeout(ac->cmd_wait,
 			(atomic_read(&ac->cmd_state) == 0), 10/*5*HZ*/); // 2014-03-28 LS3@SND timeout is 5sec -> 100ms to avoid timeout error(music stop issue)
+#endif
 	rc = 1; // 2014-03-28 LS3@SND avoid timeout error
 
 	if (!rc) {
@@ -4928,10 +4930,13 @@ int q6asm_get_pp_params(struct audio_client *ac, u32 module_id, u32 param_id,
 		goto fail_cmd;
 	}
 
+#if (0)	// 2014-05-15 LS3@SND avoid timeout error after qct patch(r2157.1)
 	// FIXME, set to 1 to avoid timeout, find out why
 	rc = wait_event_timeout(ac->cmd_wait,
 		//(atomic_read(&ac->cmd_state) == 0), 5*HZ);
 		(atomic_read(&ac->cmd_state) == 1), 5*HZ);
+#endif
+	rc = 1;	// 2014-05-15 LS3@SND avoid timeout error after qct patch(r2157.1)
 
 	if (!rc) {
 		pr_err("%s: timeout in sending get_pp_params command to apr\n", __func__);
