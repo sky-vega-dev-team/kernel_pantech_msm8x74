@@ -344,7 +344,7 @@
 * ---------------------------------------------------------------*/
 #define CONFIG_PANTECH_SNS_MODIFY_SENSORSERVICE_DUMP
 
-#if defined(H_EF59S) || defined(H_EF59K) || defined(H_EF59L) || defined(H_EF60S)|| defined(H_EF65S) || defined(H_EF61K) || defined(H_EF62L)
+#if defined(H_EF59S) || defined(H_EF59K) || defined(H_EF59L) || defined(H_EF60S) || defined(H_EF61K) || defined(H_EF62L)  //|| defined(H_EF65S)
 /* -----------------------------------------------------------------
 * CONFIG_PANTECH_SNS_APDS9930_USE_DD_OLD_VERSION
 * -----------------------------------------------------------------
@@ -386,7 +386,7 @@
 * ---------------------------------------------------------------*/
 #define CONFIG_PANTECH_SNS_PROXIMITY_MAX_DISTANCE_METER (0.05)
 #endif
-#if defined(H_EF63S) || defined(H_EF63K) || defined(H_EF63L)
+#if defined(H_EF63S) || defined(H_EF63K) || defined(H_EF63L) || defined(H_EF65S) 
 
 
 /* -----------------------------------------------------------------
@@ -447,25 +447,6 @@
 *   .Applied Files : adsp_proc/Sensors/dd/qcom/src/sns_dd_alsprx_tmd277x.c
 * ---------------------------------------------------------------*/
 #define CONFIG_PANTECH_SNS_TMD277X_LUX_FLAG
-
-/* -----------------------------------------------------------------
-* CONFIG_PANTECH_SNS_TMD277X_NEW_EQUATION
-* -----------------------------------------------------------------
-*   .Brif          : New equation
-*   .Applied Block : ADSP(DD)
-*   .Applied Files : adsp_proc/Sensors/dd/qcom/src/sns_dd_alsprx_tmd277x.c
-* ---------------------------------------------------------------*/
-#define CONFIG_PANTECH_SNS_TMD277X_NEW_EQUATION
-
-/* -----------------------------------------------------------------
-* CONFIG_PANTECH_SNS_TMD277X_ZERO_DATA_AFTER_RESET
-* -----------------------------------------------------------------
-*   .Brif          : fix bug that zero data is not reported as soon as reset
-*   .Applied Block : ADSP(DD)
-*   .Applied Files : adsp_proc/Sensors/dd/qcom/src/sns_dd_alsprx_tmd277x.c
-* ---------------------------------------------------------------*/
-#define CONFIG_PANTECH_SNS_TMD277X_ZERO_DATA_AFTER_RESET
-
 /* -----------------------------------------------------------------
 * CONFIG_PANTECH_KITKAT_SENSOR_LIST
 * -----------------------------------------------------------------
@@ -515,7 +496,9 @@
 *                    msm8974_v30/adsp_proc/Sensors/sam/algo-ship/oem_1/src/oem_1.c
 * ---------------------------------------------------------------*/
 #define CONFIG_PANTECH_SNS_AW_TUNNING
+#endif
 
+#if defined(H_EF63S) || defined(H_EF63K) || defined(H_EF63L) || defined(H_EF65S)
 /* -----------------------------------------------------------------
 * CONFIG_PANTECH_SNS_RETRY_GET_SENSORS_LIST
 * -----------------------------------------------------------------
@@ -523,10 +506,10 @@
 *   .Applied Block : frameworks
 *   .Applied Files : frameworks/native/services/sensorservice/SensorDevice.cpp
 *                    frameworks/native/services/sensorservice/SensorDevice.h
+*                    vendor/qcom/proprietary/sensors/dsps/libhalsensors/src/sensors_qcom_hal.c
 * ---------------------------------------------------------------*/
 #define CONFIG_PANTECH_SNS_RETRY_GET_SENSORS_LIST
 #endif
-
 /* -----------------------------------------------------------------
 * CONFIG_NCPIN_DO_NOT_CONTROL
 * -----------------------------------------------------------------
@@ -572,7 +555,7 @@
 *   .Applied Files : vendor/qcom/proprietary/sensors/dsps/libhalsensors/src/sensors_qcom_hal.c
 * ---------------------------------------------------------------*/
 #define CONFIG_PANTECH_FIX_BUG_UNCALIBRATED_MAGNETIC_FIELD
-
+#if defined(H_EF56S) || defined(H_EF59S) || defined(H_EF59K) || defined(H_EF59L) || defined(H_EF60S) || defined(H_EF61K) || defined(H_EF62L)||defined(H_EF65S)
 /* -----------------------------------------------------------------
 * CONFIG_PANTECH_QCAL_USE
 * -----------------------------------------------------------------
@@ -581,7 +564,7 @@
 *   .Applied Files : vendor/qcom/proprietary/sensors/dsps/sensordaemon/reg/src/sns_reg_conf_la.c
 * ---------------------------------------------------------------*/
 #define CONFIG_PANTECH_QCAL_USE
-
+#endif
 /* -----------------------------------------------------------------
 * CCONFIG_PANTECH_SNS_FIX_BUG_SAM
 * -----------------------------------------------------------------
@@ -642,15 +625,6 @@
 * ---------------------------------------------------------------*/
 #define CONFIG_PANTECH_SNS_WHEN_ACCEL_FAIL
 
-/* -----------------------------------------------------------------
-* CONFIG_PANTECH_SNS_WAKE_LOCK_PROXIMITY
-* -----------------------------------------------------------------
-*   .Brif          : acqurie wake lock when proximity data is arrived
-*   .Applied Block : sensordaemon
-*   .Applied Files : vendor/qcom/proprietary/sensors/dsps/sensordamon/apps/common/acm/src/sns_acm_mr.c
-* ---------------------------------------------------------------*/
-#define CONFIG_PANTECH_SNS_WAKE_LOCK_PROXIMITY
-
 #if defined(H_EF56S) || defined(H_EF59S) || defined(H_EF59K) || defined(H_EF59L) || defined(H_EF60S) || defined(H_EF61K) || defined(H_EF62L)
 /* -----------------------------------------------------------------
 * CONFIG_PANTECH_ACCEL_INT_USE
@@ -661,7 +635,6 @@
 * ---------------------------------------------------------------*/
 #define CONFIG_PANTECH_ACCEL_INT_USE
 #endif
-
 /* -----------------------------------------------------------------
 * CONFIG_PANCETH_SNS_APDS99xx_SUNLIGHT_CANCELATION
 * -----------------------------------------------------------------
@@ -670,14 +643,5 @@
 *   .Applied Files : adsp_proc/Sensors/dd/qcom/src/Sns_dd_apds99xx.c
 * ---------------------------------------------------------------*/
 #define CONFIG_PANTECH_SNS_APDS99XX_SUNLIGHT_CANCELATION
-
-/* -----------------------------------------------------------------
-* CONFIG_PANTECH_FIX_APPS_SAM_BUG_WHEN_VENDOR_CAL
-* -----------------------------------------------------------------
-*   .Brif          : fix a bug for disabling virtual sensor, when vendor cal is used.
-*   .Applied Block : sensordaemon
-*   .Applied Files : vendor/qcom/proprietary/sensors/dsps/sensordaemon/common/sam/framework/src/sns_sam.c
-* ---------------------------------------------------------------*/
-#define CONFIG_PANTECH_FIX_APPS_SAM_BUG_WHEN_VENDOR_CAL
 
 #endif // _CUST_PANTECH_DSPS_H_
