@@ -268,7 +268,7 @@ int msm_audio_effects_reverb_handler(struct audio_client *ac,
 			}
 			reverb->room_level = *values++;
 			pr_debug("%s: REVERB_ROOM_LEVEL val:%d\n",
-				__func__, reverb->room_level)
+				__func__, reverb->room_level);
 			if (command_config_state == CONFIG_SET) {
 				*updt_params++ = AUDPROC_MODULE_ID_REVERB;
 				*updt_params++ =
