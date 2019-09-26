@@ -793,7 +793,6 @@ int q6lsm_snd_model_buf_free(struct lsm_client *client)
 		msm_audio_ion_free(client->sound_model.client,
 				 client->sound_model.handle);
 		client->sound_model.client = NULL;
-		    msm_ion_client_create("lsm_client");
 		client->sound_model.handle = NULL;
 		client->sound_model.data = NULL;
 		client->sound_model.phys = 0;
