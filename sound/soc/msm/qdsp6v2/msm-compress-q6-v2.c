@@ -726,7 +726,6 @@ static int msm_compr_configure_dsp(struct snd_compr_stream *cstream)
 
 	pr_debug("%s: stream_id %d bits_per_sample %d\n",
 			__func__, ac->stream_id, bits_per_sample);
-
 	ret = q6asm_stream_open_write_v2(ac,
 			prtd->codec, bits_per_sample,
 			ac->stream_id,
@@ -919,7 +918,6 @@ static int msm_compr_free(struct snd_compr_stream *cstream)
 	int dir = IN, ret = 0, stream_id;
 	unsigned long flags;
 	uint32_t stream_index;
-	uint16_t bits_per_sample = 16;
 
 	pr_debug("%s\n", __func__);
 
@@ -1211,6 +1209,7 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 	unsigned long flags;
 	int stream_id;
 	uint32_t stream_index;
+	uint16_t bits_per_sample = 16;
 
 	if (cstream->direction != SND_COMPRESS_PLAYBACK) {
 		pr_err("%s: Unsupported stream type\n", __func__);
