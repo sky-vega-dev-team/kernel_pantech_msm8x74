@@ -62,9 +62,9 @@
 
 /* Default values used if user space does not set */
 #define COMPR_PLAYBACK_MIN_FRAGMENT_SIZE (8 * 1024)
-#define COMPR_PLAYBACK_MAX_FRAGMENT_SIZE (128 * 1024)
+#define COMPR_PLAYBACK_MAX_FRAGMENT_SIZE (256 * 1024)
 #define COMPR_PLAYBACK_MIN_NUM_FRAGMENTS (4)
-#define COMPR_PLAYBACK_MAX_NUM_FRAGMENTS (16 * 4)
+#define COMPR_PLAYBACK_MAX_NUM_FRAGMENTS (16 * 8)
 
 #define COMPRESSED_LR_VOL_MAX_STEPS	0x2000
 const DECLARE_TLV_DB_LINEAR(msm_compr_vol_gain, 0,
@@ -131,6 +131,7 @@ struct msm_compr_audio {
 
 	uint32_t sample_rate;
 	uint32_t num_channels;
+	uint32_t bits_per_sample;
 
 	/*
 	 * convention - commands coming from the same thread
@@ -586,19 +587,15 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 
 	switch (prtd->codec) {
 	case FORMAT_LINEAR_PCM:
-		pr_debug("SND_AUDIOCODEC_PCM\n");
-		if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S24_LE)
-			bit_width = 24;
+		pr_err("%s :FORMAT_LINEAR_PCM SR %d CH %d bps %d\n", __func__,
+			prtd->sample_rate, prtd->num_channels,prtd->bits_per_sample);
 		ret = q6asm_media_format_block_pcm_format_support_v2(
-							prtd->audio_client,
-							prtd->sample_rate,
-							prtd->num_channels,
-							bit_width, stream_id);
+			prtd->audio_client, prtd->sample_rate,
+			prtd->num_channels, prtd->bits_per_sample,
+			stream_id);
 		if (ret < 0)
-			pr_err("%s: CMD Format block failed\n", __func__);
-
+		    pr_debug("%s: CMD Format block failed %d \n", __func__, ret);
 		break;
-
 	case FORMAT_MP3:
 		pr_debug("SND_AUDIOCODEC_MP3\n");
 		/* no media format block needed */
@@ -727,16 +724,20 @@ static int msm_compr_configure_dsp(struct snd_compr_stream *cstream)
 		.rampingcurve = SOFT_VOLUME_CURVE_LINEAR,
 	};
 	if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S24_LE)
-		bits_per_sample = 24;
+		prtd->bits_per_sample = 24;
 	else if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S32_LE)
-		bits_per_sample = 32;
+		prtd->bits_per_sample = 32;
 
 	pr_debug("%s: stream_id %d bits_per_sample %d\n",
+			__func__, ac->stream_id, prtd->bits_per_sample);
+	pr_debug("%s: stream_id %d bits_per_sample %d\n",
 			__func__, ac->stream_id, bits_per_sample);
+	ret = q6asm_open_write_v2(prtd->audio_client,
+				prtd->codec, prtd->bits_per_sample);
 	ret = q6asm_stream_open_write_v2(ac,
-			prtd->codec, bits_per_sample,
-			ac->stream_id,
-			prtd->gapless_state.use_dsp_gapless_mode);
+				prtd->codec, bits_per_sample,
+				ac->stream_id,
+				prtd->gapless_state.use_dsp_gapless_mode);
 
 	if (ret < 0) {
 		pr_err("%s: Session out open failed\n", __func__);
@@ -867,6 +868,7 @@ static int msm_compr_open(struct snd_compr_stream *cstream)
 	prtd->copied_total = 0;
 	prtd->byte_offset = 0;
 	prtd->sample_rate = 44100;
+	prtd->bits_per_sample = 16;
 	prtd->num_channels = 2;
 	prtd->drain_ready = 0;
 	prtd->last_buffer = 0;
@@ -1035,8 +1037,11 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 
 	switch (params->codec.id) {
 	case SND_AUDIOCODEC_PCM: {
-		pr_debug("SND_AUDIOCODEC_PCM\n");
+		pr_err("%s: SND_AUDIOCODEC_PCM BPS: %d\n",\
+			 __func__, prtd->codec_param.codec.format);
 		prtd->codec = FORMAT_LINEAR_PCM;
+		prtd->bits_per_sample = prtd->codec_param.codec.format;
+		frame_sz = AAC_OUTPUT_FRAME_SZ;
 		is_format_gapless = true;
 		break;
 	}
@@ -1099,6 +1104,12 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 
 	default:
 		pr_err("codec not supported, id =%d\n", params->codec.id);
+		return -EINVAL;
+	}
+
+	if((prtd->codec != FORMAT_LINEAR_PCM) && (prtd->sample_rate > 48000)) {
+		pr_err("%s: Out of bounds sample rate for codec %d\n",\
+				 __func__, prtd->codec);
 		return -EINVAL;
 	}
 
@@ -1583,15 +1594,15 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 		}
 
 		if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S24_LE)
-			bits_per_sample = 24;
+			prtd->bits_per_sample = 24;
 		else if (prtd->codec_param.codec.format ==
 			 SNDRV_PCM_FORMAT_S32_LE)
-			bits_per_sample = 32;
+			prtd->bits_per_sample = 32;
 
 		pr_debug("%s: open_write stream_id %d bits_per_sample %d",
-				__func__, stream_id, bits_per_sample);
+				__func__, stream_id, prtd->bits_per_sample);
 		rc = q6asm_stream_open_write_v2(prtd->audio_client,
-				prtd->codec, bits_per_sample,
+				prtd->codec, prtd->bits_per_sample,
 				stream_id,
 				prtd->gapless_state.use_dsp_gapless_mode);
 		if (rc < 0) {
@@ -1812,7 +1823,7 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 
 	switch (codec->codec) {
 	case SND_AUDIOCODEC_MP3:
-		codec->num_descriptors = 2;
+		codec->num_descriptors = 5;
 		codec->descriptor[0].max_ch = 2;
 		memcpy(codec->descriptor[0].sample_rates,
 		       supported_sample_rates,
@@ -1827,7 +1838,7 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 		codec->descriptor[0].formats = 0;
 		break;
 	case SND_AUDIOCODEC_AAC:
-		codec->num_descriptors = 2;
+		codec->num_descriptors = 5;
 		codec->descriptor[1].max_ch = 2;
 		memcpy(codec->descriptor[1].sample_rates,
 		       supported_sample_rates,

@@ -2830,7 +2830,9 @@ static int __q6asm_media_format_block_pcm(struct audio_client *ac,
 	fmt.num_channels = channels;
 	fmt.bits_per_sample = bits_per_sample;
 	fmt.sample_rate = rate;
+	fmt.reserved = 0;
 	fmt.is_signed = 1;
+
 	channel_mapping = fmt.channel_mapping;
 
 	memset(channel_mapping, 0, PCM_FORMAT_MAX_NUM_CHANNEL);
