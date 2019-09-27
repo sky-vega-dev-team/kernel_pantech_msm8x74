@@ -151,7 +151,7 @@ enum msm_pcm_routing_event {
  * dspst_id:  DSP audio stream ID
  * stream_type: playback or capture
  */
-int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode, int dspst_id,
+void msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode, int dspst_id,
 	int stream_type);
 void msm_pcm_routing_reg_psthr_stream(int fedai_id, int dspst_id,
 		int stream_type);
@@ -169,7 +169,7 @@ struct msm_pcm_routing_fdai_data {
 };
 #endif
 
-int msm_pcm_routing_reg_phy_stream_v2(int fedai_id, bool perf_mode,
+void msm_pcm_routing_reg_phy_stream_v2(int fedai_id, bool perf_mode,
 				       int dspst_id, int stream_type,
 				       struct msm_pcm_routing_evt event_info);
 
