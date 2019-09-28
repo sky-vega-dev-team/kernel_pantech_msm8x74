@@ -606,11 +606,7 @@
 		reg-names = "hc_mem", "core_mem";
 		interrupts = <0 123 0>, <0 138 0>;
 		interrupt-names = "hc_irq", "pwr_irq";
-		qcom,pad-pull-on = <0x0 0x3 0x3>; /* no-pull, pull-up, pull-up */
-		qcom,pad-pull-off = <0x0 0x3 0x3>; /* no-pull, pull-up, pull-up */
-		qcom,pad-drv-on = <0x7 0x4 0x4>; /* 16mA, 10mA, 10mA */
-		qcom,pad-drv-off = <0x0 0x0 0x0>; /* 2mA, 2mA, 2mA */
-		qcom,clk-rates = <400000 20000000 25000000 50000000 100000000 200000000 400000000>;
+		qcom,clk-rates = <400000 20000000 25000000 50000000 100000000 200000000>;
 		qcom,bus-speed-mode = "HS200_1p8v", "DDR_1p8v";
 		qcom,cpu-dma-latency-us = <200>;
 
@@ -1696,7 +1692,6 @@
 		reg = <0 4>;
 		compatible = "qcom,msm-cpufreq";
 		qcom,cpufreq-table =
-			<  268800  300000  572 >,
 			<  300000  300000  572 >,
 			<  422400  422400 1144 >,
 			<  652800  499200 1525 >,
@@ -1711,10 +1706,7 @@
 			< 1728000 1651200 6103 >,
 			< 1958400 1728000 7102 >,
 			< 2265600 1728000 7102 >,
-			< 2419200 1728000 7102 /* 931 MHz */ >,
-			< 2572800 1728000 7102 /* 931 MHz */ >,
-			< 2726400 1728000 7102 /* 931 MHz */ >,
-			< 2803200 1728000 7102 /* 931 MHz */ >;
+			< 2457600 1728000 7102 >;
 	};
 
 	usb3: qcom,ssusb@f9200000 {
