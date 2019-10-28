@@ -387,6 +387,12 @@
 /* 375 */	CALL(sys_setns)
 		CALL(sys_process_vm_readv)
 		CALL(sys_process_vm_writev)
+		CALL(sys_ni_syscall)
+		CALL(sys_ni_syscall)
+/* 380 */	CALL(sys_ni_syscall)
+		CALL(sys_ni_syscall)
+		CALL(sys_ni_syscall)
+		CALL(sys_seccomp)
 		CALL(sys_getrandom)
 
 #ifndef syscalls_counted
