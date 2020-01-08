@@ -3940,6 +3940,8 @@ int get_message_T100(uint8_t *quantum_msg, unsigned int *touch_status)
 				quantum_msg[0], quantum_msg[1], (quantum_msg[3] << 8) | quantum_msg[2],
 				(quantum_msg[5] << 8) | quantum_msg[4],
 				(quantum_msg[7] << 8) | quantum_msg[6]);
+
+#if defined(CONFIG_MACH_MSM8974_EF65S) || defined(CONFIG_MACH_MSM8974_EF69K) || defined(CONFIG_MACH_MSM8974_EF69L)
 #ifdef PAN_TOUCH_CAL_PMODE				
       //2014.04.25 p13106 for check suppression when touch protection ends.
 			if(!mflag_touch_good_check && !pan_pmode_check_sup_flag &&pan_pmode_check_sup_start_flag && (quantum_msg[1] & 0x40)){
@@ -3953,6 +3955,8 @@ int get_message_T100(uint8_t *quantum_msg, unsigned int *touch_status)
 			  del_timer_sync(&pan_pmode_check_sup_timer);	
 			}  
 #endif			
+#endif
+
 //++ p11309 - 2014.01.02 for Preventing from Reverse Acceleration
 #ifdef PAN_TOUCH_DETECT_GHOST
 		pan_check_anti_touch(quantum_msg);
@@ -5304,13 +5308,14 @@ static int __devinit mxt_probe(struct i2c_client *client, const struct i2c_devic
 	//INIT_WORK(&pan_pmode_antical_wq, pan_pmode_antical_wq_func);
 	INIT_WORK(&pan_pmode_autocal_wq, pan_pmode_autocal_wq_func);
 	
-
+#if defined(CONFIG_MACH_MSM8974_EF65S)
   //2014.04.25 p13106 for check suppression when touch protection ends.
   INIT_WORK(&pan_pmode_check_sup_wq, pan_pmode_check_sup_wq_func);
   init_timer(&pan_pmode_check_sup_timer);
 	pan_pmode_check_sup_timer.function = pan_pmode_check_sup_timer_func;
 	pan_pmode_check_sup_timer.data = 0;
-	
+#endif
+
 /*
 	init_timer(&pan_pmode_antical_timer);
 	pan_pmode_antical_timer.function = pan_pmode_antical_timer_func;
@@ -5605,7 +5610,7 @@ void pan_pmode_autocal_wq_func(struct work_struct * p)
 		dbg_cr("[TOUCH] Configuration Fail!!! , Line %d \n", __LINE__);
 	}	
 }
-
+#if defined(CONFIG_MACH_MSM8974_EF65S) || defined(CONFIG_MACH_MSM8974_EF69K) || defined(CONFIG_MACH_MSM8974_EF69L)
 //2014.04.25 p13106 for check suppression when touch protection ends.
 static void pan_pmode_check_sup_timer_func(unsigned long data)
 {
@@ -5623,6 +5628,7 @@ void pan_pmode_check_sup_wq_func(struct work_struct * p){
 }
 #endif
 //-- p11309
+#endif
 
 #ifdef TOUCH_MONITOR
 void cbInit(CircularBuffer *cb, int size) {
