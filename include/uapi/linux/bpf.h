@@ -549,6 +549,15 @@ enum bpf_func_id {
 	 */
 	BPF_FUNC_skb_adjust_room = 50,
 
+	/**
+	 * u64 bpf_ktime_get_boot_ns(void)
+	 *     Return the time elapsed since system boot, in nanoseconds.
+	 *     Does include the time the system was suspended.
+	 *     See: clock_gettime(CLOCK_BOOTTIME)
+	 *     Return: current ktime
+	 */
+	BPF_FUNC_ktime_get_boot_ns = 125,
+
 	__BPF_FUNC_MAX_ID,
 };
 
