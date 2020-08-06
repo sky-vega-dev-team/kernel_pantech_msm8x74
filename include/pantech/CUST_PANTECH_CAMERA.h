@@ -1169,6 +1169,16 @@ applied patch code based on LINUX build ID LNX.LA.3.5-07510-8x74.0-1.
  ****************************************************************/
 #define F_PANTECH_CAMERA_RECORDING_STOP_DURING_LIVESHOT
 
+#if defined(F_PANTECH_CAMERA_EF65SS)
+/****************************************************************
+ * Description : split high flash current into two, 600mA and 400mA
+ * Creation Date : 2014/06/08
+ * Added By : lee hyoungseok
+ ****************************************************************/
+#define F_PANTECH_CAMERA_SPLIT_HIGH_FLASH_CURRENT
+#define CONFIG_PANTECH_CAMERA_ADD_SPLIT_HIGH_FLASH_CURRENT
+#endif
+
 /*----------------------------------------------------------------------------*/
 /*  MODEL-SPECIFIC CONSTANTS                                                                                      */
 /*  Define enum type for model                                                                                           */

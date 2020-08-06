@@ -642,6 +642,9 @@ enum msm_camera_led_config_t {
 	MSM_CAMERA_LED_HIGH,
 	MSM_CAMERA_LED_INIT,
 	MSM_CAMERA_LED_RELEASE,
+#ifdef CONFIG_PANTECH_CAMERA_ADD_SPLIT_HIGH_FLASH_CURRENT
+	MSM_CAMERA_LED_MIDDLE,
+#endif
 };
 
 struct msm_camera_led_cfg_t {
