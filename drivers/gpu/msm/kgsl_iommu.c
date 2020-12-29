@@ -193,7 +193,7 @@ static void _prev_entry(struct kgsl_process_private *priv,
 			ret->size = entry->memdesc.size;
 			ret->flags = entry->memdesc.flags;
 			ret->priv = entry->memdesc.priv;
-			ret->pid = priv->pid;
+			ret->pid = pid_nr(priv->pid);
 		}
 
 		node = rb_next(&entry->node);
@@ -227,7 +227,7 @@ static void _next_entry(struct kgsl_process_private *priv,
 			ret->size = entry->memdesc.size;
 			ret->flags = entry->memdesc.flags;
 			ret->priv = entry->memdesc.priv;
-			ret->pid = priv->pid;
+			ret->pid = pid_nr(priv->pid);
 		}
 
 		node = rb_prev(&entry->node);
