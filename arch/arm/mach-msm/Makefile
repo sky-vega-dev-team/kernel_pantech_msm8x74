@@ -422,6 +422,5 @@ obj-$(CONFIG_WALL_CLK_SYSFS) += wallclk_sysfs.o
 obj-$(CONFIG_ARCH_RANDOM) += early_random.o
 obj-$(CONFIG_PERFMAP) += perfmap.o
 
-obj-$(CONFIG_AUTOSMP) += autosmp.o
 obj-$(CONFIG_PANTECH_ERR_CRASH_LOGGING) += pantech_restart.o pantech_sys.o pantech_apanic.o pantech_debug.o
 obj-$(CONFIG_PANTECH_MEM_LEAK_TRACE) += pantech_memlog.o
