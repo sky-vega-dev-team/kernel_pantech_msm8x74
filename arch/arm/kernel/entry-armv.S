@@ -457,7 +457,6 @@ __und_usr:
 	bne	__und_usr_thumb
 	sub	r4, r2, #4			@ ARM instr at LR - 4
 1:	ldrt	r0, [r4]
-
 #ifdef CONFIG_CPU_ENDIAN_BE8
 	rev	r0, r0				@ little endian instruction
 #endif
@@ -668,6 +667,7 @@ call_fpe:
 #endif
 
 do_fpe:
+	enable_irq
 	ldr	r4, .LCfp
 	add	r10, r10, #TI_FPSTATE		@ r10 = workspace
 	ldr	pc, [r4]			@ Call FP module USR entry point
@@ -693,8 +693,9 @@ ENDPROC(no_fp)
 __und_usr_fault_32:
 	mov	r1, #4
 	b	1f
-__und_usr_fault_16
+__und_usr_fault_16:
 	mov	r1, #2
+1:	enable_irq
 	mov	r0, sp
 	adr	lr, BSYM(ret_from_exception)
 	b	__und_fault
