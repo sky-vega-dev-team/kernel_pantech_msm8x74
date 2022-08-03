@@ -462,14 +462,7 @@ ip_vs_bypass_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 
 	/* MTU checking */
 	mtu = dst_mtu(&rt->dst);
-	if (IP6CB(skb)->frag_max_size) {
-		/* frag_max_size tell us that, this packet have been
-		 * defragmented by netfilter IPv6 conntrack module.
-		 */
-		if (IP6CB(skb)->frag_max_size > mtu)
-			return true; /* largest fragment violate MTU */
-	}
-	else if (skb->len > mtu && !skb_is_gso(skb)) {
+	if (skb->len > mtu && !skb_is_gso(skb)) {
 		if (!skb->dev) {
 			struct net *net = dev_net(skb_dst(skb)->dev);
 
@@ -690,14 +683,7 @@ ip_vs_nat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 
 	/* MTU checking */
 	mtu = dst_mtu(&rt->dst);
-	if (IP6CB(skb)->frag_max_size) {
-		/* frag_max_size tell us that, this packet have been
-		 * defragmented by netfilter IPv6 conntrack module.
-		 */
-		if (IP6CB(skb)->frag_max_size > mtu)
-			return true; /* largest fragment violate MTU */
-	}
-	else if (skb->len > mtu && !skb_is_gso(skb)) {
+	if (skb->len > mtu && !skb_is_gso(skb)) {
 		if (!skb->dev) {
 			struct net *net = dev_net(skb_dst(skb)->dev);
 
@@ -1332,14 +1318,7 @@ ip_vs_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
 
 	/* MTU checking */
 	mtu = dst_mtu(&rt->dst);
-	if (IP6CB(skb)->frag_max_size) {
-		/* frag_max_size tell us that, this packet have been
-		 * defragmented by netfilter IPv6 conntrack module.
-		 */
-		if (IP6CB(skb)->frag_max_size > mtu)
-			return true; /* largest fragment violate MTU */
-	}
-	else if (skb->len > mtu && !skb_is_gso(skb)) {
+	if (skb->len > mtu && !skb_is_gso(skb)) {
 		if (!skb->dev) {
 			struct net *net = dev_net(skb_dst(skb)->dev);
 
