@@ -675,6 +675,31 @@ KBUILD_CFLAGS  += $(call cc-disable-warning, array-bounds)
 # disable missing-attributes warnings in gcc 9+
 KBUILD_CFLAGS  += $(call cc-disable-warning, missing-attributes)
 
+# disable attributes warnings in gcc 9+
+KBUILD_CFLAGS  += $(call cc-disable-warning, attributes)
+
+KBUILD_CFLAGS  += $(call cc-disable-warning, stringop-truncation)
+KBUILD_CFLAGS  += $(call cc-disable-warning, address)
+KBUILD_CFLAGS  += $(call cc-disable-warning, format-overflow)
+KBUILD_CFLAGS  += $(call cc-disable-warning, stringop-truncation)
+KBUILD_CFLAGS  += $(call cc-disable-warning, sizeof-pointer-memaccess)
+KBUILD_CFLAGS  += $(call cc-disable-warning, int-in-bool-context)
+KBUILD_CFLAGS  += $(call cc-disable-warning, unused-value)
+KBUILD_CFLAGS  += $(call cc-disable-warning, dangling-pointer)
+KBUILD_CFLAGS  += $(call cc-disable-warning, stringop-overread)
+KBUILD_CFLAGS  += $(call cc-disable-warning, unused-function)
+KBUILD_CFLAGS  += $(call cc-disable-warning, unused-label)
+KBUILD_CFLAGS  += $(call cc-disable-warning, builtin-declaration-mismatch)
+KBUILD_CFLAGS  += $(call cc-disable-warning, packed-not-aligned)
+KBUILD_CFLAGS  += $(call cc-disable-warning, misleading-indentation)
+KBUILD_CFLAGS  += $(call cc-disable-warning, restrict)
+KBUILD_CFLAGS  += $(call cc-disable-warning, duplicate-decl-specifier)
+KBUILD_CFLAGS  += $(call cc-disable-warning, array-compare)
+KBUILD_CFLAGS  += $(call cc-disable-warning, stringop-overflow)
+KBUILD_CFLAGS  += $(call cc-disable-warning, array-parameter)
+KBUILD_CFLAGS  += $(call cc-disable-warning, switch-unreachable)
+KBUILD_CFLAGS  += $(call cc-disable-warning, bool-operation)
+
 
 # disable invalid "can't wrap" optimizations for signed / pointers
 KBUILD_CFLAGS	+= $(call cc-option,-fno-strict-overflow)
