@@ -2247,6 +2247,35 @@ err:
 
 /* -------------------------------------------------------------------- */
 
+#define FPC1080_NAV_MODE_SWIPE		4
+#define FPC1080_SWIPE_KEY_THRESHOLD	20
+
+/* Report one key per swipe: nav_sum_y is reset when the finger touches or leaves. */
+static void dispatch_swipe_key_event(struct fpc1080_data *fpc1080, int dy, int finger_status)
+{
+	static bool key_sent;
+	int key;
+
+	if (finger_status == FNGR_ST_DETECTED || finger_status == FNGR_ST_LOST) {
+		fpc1080->nav_sum_y = 0;
+		key_sent = false;
+		return;
+	}
+	if (finger_status != FNGR_ST_MOVING || key_sent)
+		return;
+
+	fpc1080->nav_sum_y += dy;
+	if (abs(fpc1080->nav_sum_y) < FPC1080_SWIPE_KEY_THRESHOLD)
+		return;
+
+	key = fpc1080->nav_sum_y > 0 ? KEY_DOWN : KEY_UP;
+	input_report_key(fpc1080->nav_dev, key, 1);
+	input_sync(fpc1080->nav_dev);
+	input_report_key(fpc1080->nav_dev, key, 0);
+	input_sync(fpc1080->nav_dev);
+	key_sent = true;
+}
+
 static void process_navi_event( struct fpc1080_data *fpc1080, int dx, int dy, int finger_status )
 {
 	 const int THRESHOLD_RANGE_TAP = 100; 
@@ -2375,6 +2404,10 @@ static void process_navi_event( struct fpc1080_data *fpc1080, int dx, int dy, in
 	else if (fpc1080_mode_change == 3)  
 		{
 			dispatch_mouse_event( fpc1080, -dx, dy, filtered_finger_status ); 
+		}
+	else if (fpc1080_mode_change == FPC1080_NAV_MODE_SWIPE)
+		{
+			dispatch_swipe_key_event(fpc1080, dy, filtered_finger_status);
 		}
 		 else
 		{
@@ -3464,6 +3497,8 @@ DBG("[%s] \n", __func__);
 	input_set_capability(fpc1080->nav_dev, EV_REL, REL_X);
 	input_set_capability(fpc1080->nav_dev, EV_REL, REL_Y);
 	input_set_capability(fpc1080->nav_dev, EV_KEY, BTN_MOUSE);
+	input_set_capability(fpc1080->nav_dev, EV_KEY, KEY_UP);
+	input_set_capability(fpc1080->nav_dev, EV_KEY, KEY_DOWN);
 #if defined (SUPPORT_SINGLE_TAP)
 	input_set_capability(fpc1080->nav_dev, EV_KEY, KEY_ENTER);
 #endif
