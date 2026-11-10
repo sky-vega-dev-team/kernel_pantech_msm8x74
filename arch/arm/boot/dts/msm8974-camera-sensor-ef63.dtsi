@@ -45,6 +45,14 @@
 
 &cci {
 
+	/* OIS of the RUMBA SA module, behind the actuator address */
+	qcom,ois@48 {
+		cell-index = <998>;
+		reg = <0x48 0x0>;
+		compatible = "qcom,ois";
+		qcom,cci-master = <0>;
+	};
+
 	actuator0: qcom,actuator@48 {
 		cell-index = <1>;
 		reg = <0x48 0x0>;
@@ -110,6 +118,7 @@
 		qcom,eeprom-src = <&eeprom0>;
 		qcom,mount-angle = <90>;
 		qcom,sensor-name = "imx214";
+		qcom,ois-supported;
 		qcom,vdd-cx-supply = <&pm8841_s2>;
 		qcom,vdd-cx-name = "qcom,vdd-cx";
 		cam_rvana-supply = <&pm8941_l17>;

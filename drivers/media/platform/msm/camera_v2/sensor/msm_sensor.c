@@ -792,7 +792,8 @@ static int32_t msm_sensor_get_dt_data(struct device_node *of_node,
 		rc = 0;
 	}
 
-	if (of_property_read_bool(of_node, "qcom,gpio-ois-ldo"))
+	if (of_property_read_bool(of_node, "qcom,gpio-ois-ldo") ||
+		of_property_read_bool(of_node, "qcom,ois-supported"))
 		sensordata->sensor_init_params->ois_supported = true;
 
 	rc = of_property_read_u32(of_node, "qcom,cci-master",

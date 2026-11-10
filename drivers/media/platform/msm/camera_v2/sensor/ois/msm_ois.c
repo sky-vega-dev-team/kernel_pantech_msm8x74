@@ -22,6 +22,9 @@
 #ifdef CONFIG_OIS_ROHM_BU24205GWL
 #include "lgit_ois_rohm.h"
 #endif
+#ifdef CONFIG_OIS_PANTECH_RUMBA_SA
+#include "pantech_ois_rumba.h"
+#endif
 
 #define OIS_MAKER_ID_ADDR    (0x700)
 
@@ -315,6 +318,11 @@ int msm_init_ois(enum ois_ver_t ver)
 	int rc = 0;
 	uint16_t chipid = 0;
 
+#ifdef CONFIG_OIS_PANTECH_RUMBA_SA
+	/* The Pantech modules have no maker id to probe */
+	pantech_ois_rumba_init(&msm_ois_t);
+	goto ois_selected;
+#endif
 	ois_i2c_e2p_read(OIS_MAKER_ID_ADDR, &chipid, 1);
 	pr_info("%s : OIS chipid=%d\n", __func__, chipid); /* Don't remove this ! */
 
@@ -344,6 +352,9 @@ int msm_init_ois(enum ois_ver_t ver)
 		msm_ois_t.ois_func_tbl = NULL;
 		return OIS_INIT_NOT_SUPPORTED;
 	}
+#ifdef CONFIG_OIS_PANTECH_RUMBA_SA
+ois_selected:
+#endif
 	msm_ois_t.i2c_client.cci_client->sid = msm_ois_t.sid_ois;
 
 	if (ois_lock) {
