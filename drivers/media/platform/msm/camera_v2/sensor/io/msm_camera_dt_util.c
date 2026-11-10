@@ -23,11 +23,31 @@
 #define CDBG(fmt, args...) do { } while (0)
 #endif
 
+static const struct {
+	const char *name;
+	enum msm_sensor_power_seq_gpio_t gpio;
+} msm_camera_dt_gpio_names[] = {
+	{ "sensor_gpio_reset", SENSOR_GPIO_RESET },
+	{ "sensor_gpio_standby", SENSOR_GPIO_STANDBY },
+	{ "sensor_gpio_vana", SENSOR_GPIO_VANA },
+	{ "sensor_gpio_vdig", SENSOR_GPIO_VDIG },
+	{ "sensor_gpio_vio", SENSOR_GPIO_VIO },
+	{ "sensor_gpio_vcm", SENSOR_GPIO_VCM },
+	{ "sensor_gpio_ois_ldo_en", SENSOR_GPIO_OIS_LDO_EN },
+	{ "sensor_gpio_ois_reset", SENSOR_GPIO_OIS_RESET },
+	{ "sensor_gpio_af_pwdm", SENSOR_GPIO_AF_PWDM },
+	{ "sensor_gpio_wp", SENSOR_GPIO_R_WP },
+	{ "sensor_gpio_cam0_svdd0_en", SENSOR_GPIO_CAM0_SVDD0_EN },
+	{ "sensor_gpio_cam0_svdd1_en", SENSOR_GPIO_CAM0_SVDD1_EN },
+	{ "sensor_gpio_cam0_avdd_en", SENSOR_GPIO_CAM0_AVDD_EN },
+};
+
 int32_t msm_camera_get_dt_power_setting_data(struct device_node *of_node,
+	struct camera_vreg_t *cam_vreg, int num_vreg,
 	struct msm_sensor_power_setting **power_setting,
 	uint16_t *power_setting_size)
 {
-	int32_t rc = 0, i = 0;
+	int32_t rc = 0, i = 0, j = 0;
 	int32_t count = 0;
 	const char *seq_name = NULL;
 	uint32_t *array = NULL;
@@ -77,6 +97,11 @@ int32_t msm_camera_get_dt_power_setting_data(struct device_node *of_node,
 			ps[i].seq_type = SENSOR_I2C_MUX;
 			CDBG("%s:%d seq_type[%d] %d\n", __func__, __LINE__,
 				i, ps[i].seq_type);
+		} else {
+			pr_err("%s: unknown power sequence type %s\n",
+				__func__, seq_name);
+			rc = -EILSEQ;
+			goto ERROR1;
 		}
 	}
 
@@ -91,36 +116,50 @@ int32_t msm_camera_get_dt_power_setting_data(struct device_node *of_node,
 			pr_err("%s failed %d\n", __func__, __LINE__);
 			goto ERROR1;
 		}
-		if (!strcmp(seq_name, "cam_vdig"))
-			ps[i].seq_val = CAM_VDIG;
-		else if (!strcmp(seq_name, "cam_vio"))
-			ps[i].seq_val = CAM_VIO;
-		else if (!strcmp(seq_name, "cam_vana"))
-			ps[i].seq_val = CAM_VANA;
-		else if (!strcmp(seq_name, "cam_vaf"))
-			ps[i].seq_val = CAM_VAF;
-		else if (!strcmp(seq_name, "sensor_gpio_reset"))
-			ps[i].seq_val = SENSOR_GPIO_RESET;
-		else if (!strcmp(seq_name, "sensor_gpio_standby"))
-			ps[i].seq_val = SENSOR_GPIO_STANDBY;
-		else if (!strcmp(seq_name, "sensor_gpio_vdig"))
-			ps[i].seq_val = SENSOR_GPIO_VDIG;
-		else if (!strcmp(seq_name, "sensor_gpio_af_pwdm"))
-			ps[i].seq_val = SENSOR_GPIO_AF_PWDM;
-		else if (!strcmp(seq_name, "sensor_gpio_wp"))
-			ps[i].seq_val = SENSOR_GPIO_R_WP;
-		else if (!strcmp(seq_name, "sensor_gpio_cam0_svdd0_en"))
-			ps[i].seq_val = SENSOR_GPIO_CAM0_SVDD0_EN;
-		else if (!strcmp(seq_name, "sensor_gpio_cam0_svdd1_en"))
-			ps[i].seq_val = SENSOR_GPIO_CAM0_SVDD1_EN;
-		else if (!strcmp(seq_name, "sensor_gpio_cam0_avdd_en"))
-			ps[i].seq_val = SENSOR_GPIO_CAM0_AVDD_EN;
-		else if (!strcmp(seq_name, "sensor_cam_mclk"))
-			ps[i].seq_val = SENSOR_CAM_MCLK;
-		else if (!strcmp(seq_name, "sensor_cam_clk"))
-			ps[i].seq_val = SENSOR_CAM_CLK;
-		else if (!strcmp(seq_name, "none"))
-			ps[i].seq_val = 0;
+		switch (ps[i].seq_type) {
+		case SENSOR_VREG:
+			/* Regulators are named after qcom,cam-vreg-name */
+			for (j = 0; j < num_vreg; j++)
+				if (!strcmp(seq_name, cam_vreg[j].reg_name))
+					break;
+			if (j < num_vreg)
+				ps[i].seq_val = j;
+			else
+				rc = -EILSEQ;
+			break;
+		case SENSOR_GPIO:
+			for (j = 0; j < ARRAY_SIZE(msm_camera_dt_gpio_names); j++)
+				if (!strcmp(seq_name,
+					msm_camera_dt_gpio_names[j].name))
+					break;
+			if (j < ARRAY_SIZE(msm_camera_dt_gpio_names))
+				ps[i].seq_val = msm_camera_dt_gpio_names[j].gpio;
+			else
+				rc = -EILSEQ;
+			break;
+		case SENSOR_CLK:
+			if (!strcmp(seq_name, "sensor_cam_mclk"))
+				ps[i].seq_val = SENSOR_CAM_MCLK;
+			else if (!strcmp(seq_name, "sensor_cam_clk"))
+				ps[i].seq_val = SENSOR_CAM_CLK;
+			else
+				rc = -EILSEQ;
+			break;
+		case SENSOR_I2C_MUX:
+			if (!strcmp(seq_name, "none"))
+				ps[i].seq_val = 0;
+			else
+				rc = -EILSEQ;
+			break;
+		default:
+			rc = -EILSEQ;
+			break;
+		}
+		if (rc < 0) {
+			pr_err("%s: unknown power sequence %s\n", __func__,
+				seq_name);
+			goto ERROR1;
+		}
 	}
 
 	array = kzalloc(sizeof(uint32_t) * count, GFP_KERNEL);
