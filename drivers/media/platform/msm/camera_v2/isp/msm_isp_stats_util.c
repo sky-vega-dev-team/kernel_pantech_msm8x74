@@ -39,9 +39,8 @@ static int msm_isp_stats_cfg_ping_pong_address(struct vfe_device *vfe_dev,
 	rc = vfe_dev->buf_mgr->ops->get_buf(vfe_dev->buf_mgr,
 			vfe_dev->pdev->id, bufq_handle, &buf);
 	if (rc < 0) {
-		uint8_t idx = STATS_IDX(stream_info->stream_handle);
-		if (idx < MSM_ISP_STATS_MAX)
-			vfe_dev->error_info.stats_framedrop_count[idx]++;
+		vfe_dev->error_info.stats_framedrop_count[
+			STATS_IDX(stream_info->stream_handle)]++;
 		return rc;
 	}
 
@@ -98,7 +97,6 @@ void msm_isp_process_stats_irq(struct vfe_device *vfe_dev,
 	buf_event.timestamp = ts->event_time;
 	buf_event.frame_id =
 		vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id;
-	buf_event.input_intf = VFE_PIX_0;
 	pingpong_status = vfe_dev->hw_info->
 		vfe_ops.stats_ops.get_pingpong_status(vfe_dev);
 

@@ -17,6 +17,7 @@
 #include <linux/i2c.h>
 #include <linux/videodev2.h>
 #include <linux/pm_qos.h>
+#include <linux/wakelock.h>
 #include <linux/msm_ion.h>
 #include <linux/iommu.h>
 #include <media/v4l2-dev.h>
@@ -35,7 +36,6 @@
 struct msm_video_device {
 	struct video_device *vdev;
 	atomic_t opened;
-	atomic_t stream_cnt;
 };
 
 struct msm_queue_head {
