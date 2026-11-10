@@ -377,6 +377,8 @@ static int msm_isp_get_buf(struct msm_isp_buf_mgr *buf_mgr, uint32_t id,
 			(*buf_info)->buf_get_count = 1;
 			(*buf_info)->buf_put_count = 0;
 			(*buf_info)->buf_reuse_flag = 0;
+			/* A buffer put back before the other VFE took it */
+			list_del_init(&(*buf_info)->share_list);
 			list_add_tail(&(*buf_info)->share_list,
 						  &bufq->share_head);
 		}
@@ -407,6 +409,23 @@ static int msm_isp_put_buf(struct msm_isp_buf_mgr *buf_mgr,
 	}
 
 	spin_lock_irqsave(&bufq->bufq_lock, flags);
+	if (bufq->buf_type == ISP_SHARE_BUF &&
+		(buf_info->state == MSM_ISP_BUFFER_STATE_DEQUEUED ||
+		buf_info->state == MSM_ISP_BUFFER_STATE_DIVERTED)) {
+		if (buf_info->buf_get_count < bufq->buf_client_count) {
+			/*
+			 * The other VFE has not taken the buffer yet: take it
+			 * off the list it would take it from, so that it is
+			 * not on the list twice when it comes back.
+			 */
+			list_del_init(&buf_info->share_list);
+		} else if (++buf_info->buf_put_count <
+			ISP_SHARE_BUF_CLIENT) {
+			/* The other VFE still writes to it */
+			spin_unlock_irqrestore(&bufq->bufq_lock, flags);
+			return 0;
+		}
+	}
 	switch (buf_info->state) {
 	case MSM_ISP_BUFFER_STATE_PREPARED:
 		if (MSM_ISP_BUFFER_SRC_SCRATCH == BUF_SRC(bufq->stream_id))
@@ -681,6 +700,7 @@ static int msm_isp_request_bufq(struct msm_isp_buf_mgr *buf_mgr,
 		bufq->bufs[i].state = MSM_ISP_BUFFER_STATE_INITIALIZED;
 		bufq->bufs[i].bufq_handle = bufq->bufq_handle;
 		bufq->bufs[i].buf_idx = i;
+		INIT_LIST_HEAD(&bufq->bufs[i].share_list);
 	}
 
 	return 0;
