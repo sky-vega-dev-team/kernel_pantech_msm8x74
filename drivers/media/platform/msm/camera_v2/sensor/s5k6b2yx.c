@@ -11,6 +11,10 @@
  *
  */
 #include "msm_sensor.h"
+
+/* Index into qcom,cam-vreg-name of this module */
+#define FCAM_VDIG 0
+#define FCAM_VANA 1
 #define S5K6B2YX_SENSOR_NAME "s5k6b2yx"
 DEFINE_MSM_MUTEX(s5k6b2yx_mut);
 

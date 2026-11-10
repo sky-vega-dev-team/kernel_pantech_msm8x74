@@ -11,12 +11,68 @@
  *
  */
 #include "msm_sensor.h"
+
+/* Index into qcom,cam-vreg-name of this module */
+#define RCAM_VDIG 0
+#define RCAM_VANA 1
+#define RCAM_VIO 2
+#define RCAM_VAF 3
 #define IMX135_SENSOR_NAME "imx135"
 DEFINE_MSM_MUTEX(imx135_mut);
 
 static struct msm_sensor_ctrl_t imx135_s_ctrl;
 
 static struct msm_sensor_power_setting imx135_power_setting[] = {
+#ifdef CONFIG_PANTECH_CAMERA
+	{
+		.seq_type = SENSOR_GPIO,
+		.seq_val = SENSOR_GPIO_R_WP,//SENSOR_GPIO_RESET,
+		.config_val = GPIO_OUT_HIGH,//SENSOR_GPIO_R_WP,
+		.delay = 0,
+	},
+	{
+		.seq_type = SENSOR_VREG,
+		.seq_val = RCAM_VDIG,
+		.config_val = 0,
+		.delay = 0,
+	},
+	{
+		.seq_type = SENSOR_VREG,
+		.seq_val = RCAM_VANA,
+		.config_val = 0,
+		.delay = 0,
+	},
+	{
+		.seq_type = SENSOR_VREG,
+		.seq_val = RCAM_VIO,
+		.config_val = 0,
+		.delay = 3,
+	},
+	{
+		.seq_type = SENSOR_GPIO,
+		.seq_val = SENSOR_GPIO_RESET,
+		.config_val = GPIO_OUT_LOW,
+		.delay = 1,
+	},
+	{
+		.seq_type = SENSOR_GPIO,
+		.seq_val = SENSOR_GPIO_RESET,
+		.config_val = GPIO_OUT_HIGH,
+		.delay = 30,
+	},
+	{
+		.seq_type = SENSOR_CLK,
+		.seq_val = SENSOR_CAM_MCLK,
+		.config_val = 19200000, //24000000,
+		.delay = 1,
+	},
+	{
+		.seq_type = SENSOR_VREG,
+		.seq_val = RCAM_VAF,
+		.config_val = 0,
+		.delay = 0,
+	},
+#else
 	{
 		.seq_type = SENSOR_VREG,
 		.seq_val = CAM_VDIG,
@@ -68,9 +124,10 @@ static struct msm_sensor_power_setting imx135_power_setting[] = {
 	{
 		.seq_type = SENSOR_CLK,
 		.seq_val = SENSOR_CAM_MCLK,
-		.config_val = 0,
+		.config_val = 24000000,
 		.delay = 1,
 	},
+#endif
 	{
 		.seq_type = SENSOR_I2C_MUX,
 		.seq_val = 0,

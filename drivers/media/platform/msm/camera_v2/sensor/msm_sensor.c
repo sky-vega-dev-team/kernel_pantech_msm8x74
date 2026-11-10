@@ -15,6 +15,7 @@
 #include "camera.h"
 #include "msm_cci.h"
 #include "msm_camera_io_util.h"
+#include "msm_camera_dt_util.h"
 #include "msm_camera_i2c_mux.h"
 #include <mach/rpm-regulator.h>
 #include <mach/rpm-regulator-smd.h>
@@ -679,6 +680,10 @@ static int32_t msm_sensor_init_gpio_pin_tbl(struct device_node *of_node,
 		CDBG("%s qcom,gpio-reset %d\n", __func__,
 			gconf->gpio_num_info->gpio_num[SENSOR_GPIO_STANDBY]);
 	}
+	rc = msm_camera_get_dt_pantech_gpios(of_node, gconf, gpio_array,
+		gpio_array_size);
+	if (rc < 0)
+		goto ERROR;
 	return rc;
 
 ERROR:

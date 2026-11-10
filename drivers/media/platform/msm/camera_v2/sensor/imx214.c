@@ -11,6 +11,11 @@
  *
  */
 #include "msm_sensor.h"
+
+/* Index into qcom,cam-vreg-name of this module */
+#define RCAM_VANA 0
+#define RCAM_VIO 1
+#define RCAM_VAF 2
 #define IMX214_SENSOR_NAME "imx214"
 DEFINE_MSM_MUTEX(imx214_mut);
 

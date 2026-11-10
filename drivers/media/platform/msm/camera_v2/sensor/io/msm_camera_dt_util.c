@@ -103,6 +103,18 @@ int32_t msm_camera_get_dt_power_setting_data(struct device_node *of_node,
 			ps[i].seq_val = SENSOR_GPIO_RESET;
 		else if (!strcmp(seq_name, "sensor_gpio_standby"))
 			ps[i].seq_val = SENSOR_GPIO_STANDBY;
+		else if (!strcmp(seq_name, "sensor_gpio_vdig"))
+			ps[i].seq_val = SENSOR_GPIO_VDIG;
+		else if (!strcmp(seq_name, "sensor_gpio_af_pwdm"))
+			ps[i].seq_val = SENSOR_GPIO_AF_PWDM;
+		else if (!strcmp(seq_name, "sensor_gpio_wp"))
+			ps[i].seq_val = SENSOR_GPIO_R_WP;
+		else if (!strcmp(seq_name, "sensor_gpio_cam0_svdd0_en"))
+			ps[i].seq_val = SENSOR_GPIO_CAM0_SVDD0_EN;
+		else if (!strcmp(seq_name, "sensor_gpio_cam0_svdd1_en"))
+			ps[i].seq_val = SENSOR_GPIO_CAM0_SVDD1_EN;
+		else if (!strcmp(seq_name, "sensor_gpio_cam0_avdd_en"))
+			ps[i].seq_val = SENSOR_GPIO_CAM0_AVDD_EN;
 		else if (!strcmp(seq_name, "sensor_cam_mclk"))
 			ps[i].seq_val = SENSOR_CAM_MCLK;
 		else if (!strcmp(seq_name, "sensor_cam_clk"))
@@ -243,6 +255,49 @@ ERROR1:
 	return rc;
 }
 
+/*
+ * Pantech modules name some of their GPIOs with properties of their own.
+ * All of them are optional.
+ */
+int32_t msm_camera_get_dt_pantech_gpios(struct device_node *of_node,
+	struct msm_camera_gpio_conf *gconf, uint16_t *gpio_array,
+	uint16_t gpio_array_size)
+{
+	static const struct {
+		const char *name;
+		enum msm_sensor_power_seq_gpio_t gpio;
+	} props[] = {
+		{ "qcom,gpio-af-pwdm", SENSOR_GPIO_AF_PWDM },
+		{ "qcom,gpio-wp", SENSOR_GPIO_R_WP },
+		{ "qcom,svdd0-en", SENSOR_GPIO_CAM0_SVDD0_EN },
+		{ "qcom,svdd1-en", SENSOR_GPIO_CAM0_SVDD1_EN },
+		{ "qcom,avdd-en", SENSOR_GPIO_CAM0_AVDD_EN },
+	};
+	uint32_t val = 0;
+	int32_t rc;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(props); i++) {
+		if (!of_property_read_bool(of_node, props[i].name))
+			continue;
+		rc = of_property_read_u32(of_node, props[i].name, &val);
+		if (rc < 0) {
+			pr_err("%s:%d read %s failed rc %d\n", __func__,
+				__LINE__, props[i].name, rc);
+			return rc;
+		}
+		if (val >= gpio_array_size) {
+			pr_err("%s:%d %s invalid %d\n", __func__, __LINE__,
+				props[i].name, val);
+			return -EINVAL;
+		}
+		gconf->gpio_num_info->gpio_num[props[i].gpio] = gpio_array[val];
+		CDBG("%s %s %d\n", __func__, props[i].name,
+			gconf->gpio_num_info->gpio_num[props[i].gpio]);
+	}
+	return 0;
+}
+
 int32_t msm_camera_init_gpio_pin_tbl(struct device_node *of_node,
 	struct msm_camera_gpio_conf *gconf, uint16_t *gpio_array,
 	uint16_t gpio_array_size)
@@ -291,6 +346,10 @@ int32_t msm_camera_init_gpio_pin_tbl(struct device_node *of_node,
 		CDBG("%s qcom,gpio-reset %d\n", __func__,
 			gconf->gpio_num_info->gpio_num[SENSOR_GPIO_STANDBY]);
 	}
+	rc = msm_camera_get_dt_pantech_gpios(of_node, gconf, gpio_array,
+		gpio_array_size);
+	if (rc < 0)
+		goto ERROR;
 	return rc;
 
 ERROR:
