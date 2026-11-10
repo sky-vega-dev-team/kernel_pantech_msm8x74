@@ -441,6 +441,19 @@ static bool msm_isp_about_to_start(struct vfe_device *vfe_dev)
 	return false;
 }
 
+/* Whether the other VFE runs a pixel stream too */
+static bool msm_isp_dual_running(struct vfe_device *vfe_dev)
+{
+	int id = vfe_dev->pdev->id;
+	struct vfe_device *partner;
+
+	if (id < 0 || id >= ARRAY_SIZE(vfe_devices))
+		return false;
+	partner = vfe_devices[!id];
+	return partner && vfe_dev->axi_data.src_info[VFE_PIX_0].active &&
+		partner->axi_data.src_info[VFE_PIX_0].active;
+}
+
 static void msm_isp_enable_camif(struct vfe_device *vfe_dev)
 {
 	vfe_dev->hw_info->vfe_ops.core_ops.
@@ -584,7 +597,13 @@ void msm_isp_eof_notify(struct vfe_device *vfe_dev)
 	vfe_dev->skip_isp_send_event = 0;
 
 	spin_lock_irqsave(&vfe_dev->cfg_flag_lock, flags);
-	if (vfe_dev->config_done_flag != 1 &&
+	/*
+	 * A skipped frame leaves a VFE a buffer behind. With a frame split
+	 * over both VFEs, each decides on its own, and one skipping a frame
+	 * the other does not puts the halves of every later picture into
+	 * different frames, so do not skip while both run.
+	 */
+	if (vfe_dev->config_done_flag != 1 && !msm_isp_dual_running(vfe_dev) &&
 			(vfe_dev->axi_data.num_active_stream ==
 				vfe_dev->axi_data.created_streams_num)) {
 		vfe_dev->skip_isp_send_event = 1;
