@@ -1402,6 +1402,18 @@ static int msm_sensor_config_mt9m114b(struct msm_sensor_ctrl_t *s_ctrl,
 }
 #endif
 
+#ifdef CONFIG_OIS_CONTROLLER
+/*
+ * There is one OIS for the device, behind the sensor that announces it with
+ * qcom,ois-supported; do not let the other sensors drive it.
+ */
+static bool msm_sensor_drives_ois(struct msm_sensor_ctrl_t *s_ctrl)
+{
+	return s_ctrl->sensordata->sensor_init_params &&
+		s_ctrl->sensordata->sensor_init_params->ois_supported;
+}
+#endif
+
 int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 	void __user *argp)
 {
@@ -1826,6 +1838,10 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 	case CFG_OIS_ON: {
 		enum ois_ver_t ver;
 
+		if (!msm_sensor_drives_ois(s_ctrl)) {
+			rc = -EINVAL;
+			break;
+		}
 		if (copy_from_user(&ver,
 			(void *)cdata->cfg.setting,
 			sizeof(enum ois_ver_t))) {
@@ -1838,6 +1854,10 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 		break;
 	}
 	case CFG_OIS_OFF: {
+		if (!msm_sensor_drives_ois(s_ctrl)) {
+			rc = -EINVAL;
+			break;
+		}
 		CDBG("%s: ois_off!\n", __func__);
 		rc = msm_ois_off();
 		break;
@@ -1845,6 +1865,10 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 	case CFG_GET_OIS_INFO: {
 		struct msm_sensor_ois_info_t ois_stat;
 
+		if (!msm_sensor_drives_ois(s_ctrl)) {
+			rc = -EINVAL;
+			break;
+		}
 		CDBG("%s: CFG_GET_OIS_INFO!\n", __func__);
 		memset(&ois_stat, 0, sizeof(struct msm_sensor_ois_info_t));
 		rc = msm_ois_info(&ois_stat);
@@ -1854,6 +1878,10 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 	case CFG_SET_OIS_MODE: {
 		enum ois_mode_t mode;
 
+		if (!msm_sensor_drives_ois(s_ctrl)) {
+			rc = -EINVAL;
+			break;
+		}
 		if (copy_from_user(&mode,
 			(void *)cdata->cfg.setting,
 			sizeof(enum ois_mode_t))) {
@@ -1868,6 +1896,10 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 	case CFG_OIS_MOVE_LENS: {
 		int16_t offset[2];
 
+		if (!msm_sensor_drives_ois(s_ctrl)) {
+			rc = -EINVAL;
+			break;
+		}
 		if (copy_from_user(offset,
 			(void *)cdata->cfg.setting,
 			sizeof(int16_t)*2)) {
