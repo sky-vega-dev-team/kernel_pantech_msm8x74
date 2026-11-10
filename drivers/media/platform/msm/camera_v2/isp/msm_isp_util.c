@@ -21,6 +21,8 @@
 #include "msm_camera_io_util.h"
 
 #define MAX_ISP_V4l2_EVENTS 100
+#define VFE40_8974V2_HW_VERSION 0x1001001A
+#define VFE40_8974V3_HW_VERSION 0x1001001B
 static DEFINE_MUTEX(bandwidth_mgr_mutex);
 static struct msm_isp_bandwidth_mgr isp_bandwidth_mgr;
 
@@ -626,9 +628,17 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 				(sizeof(*data_ptr) * (data_ptr - cfg_data) >=
 				 cmd_len))
 				return -EINVAL;
-			*data_ptr++ = msm_camera_io_r(vfe_dev->vfe_base +
+			*data_ptr = msm_camera_io_r(vfe_dev->vfe_base +
 				reg_cfg_cmd->u.rw_info.reg_offset);
-				reg_cfg_cmd->u.rw_info.reg_offset += 4;
+			/*
+			 * The camera stack this is used with knows the 8974
+			 * VFE up to v2, which v3 is compatible with.
+			 */
+			if (reg_cfg_cmd->u.rw_info.reg_offset == 0 &&
+				*data_ptr == VFE40_8974V3_HW_VERSION)
+				*data_ptr = VFE40_8974V2_HW_VERSION;
+			data_ptr++;
+			reg_cfg_cmd->u.rw_info.reg_offset += 4;
 		}
 		break;
 	}
