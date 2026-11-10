@@ -494,6 +494,50 @@ static void msm_isp_enable_camif_paired(struct vfe_device *vfe_dev)
 		msecs_to_jiffies(DUAL_START_TIMEOUT_MS));
 }
 
+/*
+ * With a frame split over both VFEs, userspace pairs the two halves of each
+ * frame, their buffers and statistics, by the frame id each VFE counts on
+ * its own. The VFEs start their CAMIF a few milliseconds apart, and often
+ * on either side of a start of frame, after which their counts stay apart
+ * and nothing pairs up. Take the frame id the other VFE gave the same
+ * sensor frame, whose start of frame comes well within a millisecond of
+ * this one, and otherwise count on from the higher of the two.
+ */
+#define DUAL_SOF_WINDOW_US 3000
+
+static DEFINE_SPINLOCK(dual_sof_lock);
+static struct {
+	struct vfe_device *vfe_dev;
+	unsigned long frame_id;
+	ktime_t time;
+} dual_sof;
+
+static unsigned long msm_isp_next_pix_frame_id(struct vfe_device *vfe_dev)
+{
+	unsigned long frame_id =
+		vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id;
+	ktime_t now = ktime_get();
+	unsigned long flags;
+
+	spin_lock_irqsave(&dual_sof_lock, flags);
+	if (dual_sof.vfe_dev && dual_sof.vfe_dev != vfe_dev &&
+		ktime_us_delta(now, dual_sof.time) < DUAL_SOF_WINDOW_US) {
+		frame_id = dual_sof.frame_id;
+	} else {
+		if (dual_sof.vfe_dev && dual_sof.vfe_dev != vfe_dev &&
+			dual_sof.vfe_dev->axi_data.src_info[VFE_PIX_0].active &&
+			dual_sof.frame_id > frame_id)
+			frame_id = dual_sof.frame_id;
+		if (++frame_id == 0)
+			frame_id = 1;
+	}
+	dual_sof.vfe_dev = vfe_dev;
+	dual_sof.frame_id = frame_id;
+	dual_sof.time = now;
+	spin_unlock_irqrestore(&dual_sof_lock, flags);
+	return frame_id;
+}
+
 void msm_isp_sof_notify(struct vfe_device *vfe_dev,
 	enum msm_vfe_input_src frame_src, struct msm_isp_timestamp *ts) {
 	struct msm_isp_event_data sof_event;
@@ -506,9 +550,8 @@ void msm_isp_sof_notify(struct vfe_device *vfe_dev,
 
 	switch (frame_src) {
 	case VFE_PIX_0:
-		vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id++;
-		if (vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id == 0)
-			vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id = 1;
+		vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id =
+			msm_isp_next_pix_frame_id(vfe_dev);
 		ISP_DBG("%s: PIX0 frame id: %lu\n", __func__,
 			vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id);
 		break;
