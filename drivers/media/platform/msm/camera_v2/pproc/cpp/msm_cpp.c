@@ -11,6 +11,8 @@
  */
 
 #define pr_fmt(fmt) "MSM-CPP %s:%d " fmt, __func__, __LINE__
+#define CPP_HW_VERSION_1_1_0 0x10010000
+#define CPP_HW_VERSION_1_1_1 0x10010001
 
 
 #include <linux/delay.h>
@@ -1446,8 +1448,17 @@ long msm_cpp_subdev_ioctl(struct v4l2_subdev *sd,
 	CPP_DBG("E cmd: %d\n", cmd);
 	switch (cmd) {
 	case VIDIOC_MSM_CPP_GET_HW_INFO: {
+		struct cpp_hw_info hw_info = cpp_dev->hw_info;
+
+		/*
+		 * The camera stack this is used with knows the 1.1.0 CPP of
+		 * the 8974 and not the 1.1.1 one of the 8974AB, which runs
+		 * the same firmware.
+		 */
+		if (hw_info.cpp_hw_version == CPP_HW_VERSION_1_1_1)
+			hw_info.cpp_hw_version = CPP_HW_VERSION_1_1_0;
 		if (copy_to_user((void __user *)ioctl_ptr->ioctl_ptr,
-			&cpp_dev->hw_info,
+			&hw_info,
 			sizeof(struct cpp_hw_info))) {
 			mutex_unlock(&cpp_dev->mutex);
 			return -EINVAL;
