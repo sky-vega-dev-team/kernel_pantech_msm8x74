@@ -454,6 +454,43 @@ static bool msm_isp_dual_running(struct vfe_device *vfe_dev)
 		partner->axi_data.src_info[VFE_PIX_0].active;
 }
 
+/*
+ * Streams that deliver frames on request write into a scratch buffer until
+ * userspace asks for a frame, and then put the next one into a real buffer.
+ * With a frame split over both VFEs, userspace asks each VFE on its own, and
+ * when a frame ends in between the two take the halves from different
+ * frames. Ask both VFEs at once, and let the request userspace then sends
+ * the other VFE count as that one.
+ */
+static int dual_request_credit[ARRAY_SIZE(vfe_devices)][MAX_NUM_STREAM];
+
+static void msm_isp_request_frame(struct vfe_device *vfe_dev, int stream_idx)
+{
+	struct vfe_device *partner = NULL;
+	unsigned long flags;
+	int id = vfe_dev->pdev->id;
+
+	if (stream_idx < 0 || stream_idx >= MAX_NUM_STREAM)
+		return;
+	if (id >= 0 && id < ARRAY_SIZE(vfe_devices))
+		partner = vfe_devices[!id];
+
+	spin_lock_irqsave(&dual_start_lock, flags);
+	if (!partner || !msm_isp_dual_running(vfe_dev)) {
+		dual_request_credit[0][stream_idx] = 0;
+		dual_request_credit[1][stream_idx] = 0;
+		vfe_dev->axi_data.stream_info[stream_idx].request_frame = 1;
+	} else if (dual_request_credit[id][stream_idx] > 0) {
+		/* The other VFE asked for this frame for us already */
+		dual_request_credit[id][stream_idx]--;
+	} else {
+		vfe_dev->axi_data.stream_info[stream_idx].request_frame = 1;
+		partner->axi_data.stream_info[stream_idx].request_frame = 1;
+		dual_request_credit[!id][stream_idx]++;
+	}
+	spin_unlock_irqrestore(&dual_start_lock, flags);
+}
+
 static void msm_isp_enable_camif(struct vfe_device *vfe_dev)
 {
 	vfe_dev->hw_info->vfe_ops.core_ops.
@@ -1416,7 +1453,8 @@ int msm_isp_update_axi_stream(struct vfe_device *vfe_dev, void *arg)
 		break;
 	}
 	case UPDATE_STREAM_REQUEST_FRAMES:
-		stream_info->request_frame = 1;
+		msm_isp_request_frame(vfe_dev,
+			HANDLE_TO_IDX(update_cmd->stream_handle));
 		break;
 	default:
 		pr_err("%s: Invalid update type\n", __func__);
