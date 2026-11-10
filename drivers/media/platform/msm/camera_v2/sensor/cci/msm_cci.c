@@ -29,7 +29,12 @@
 #define CYCLES_PER_MICRO_SEC 4915
 #define CCI_MAX_DELAY 10000
 
+#ifdef CONFIG_PANTECH_CAMERA
+/* The EEPROM of the RUMBA SA modules is read through slow commands */
+#define CCI_TIMEOUT msecs_to_jiffies(1000)
+#else
 #define CCI_TIMEOUT msecs_to_jiffies(300)
+#endif
 
 /* TODO move this somewhere else */
 #define MSM_CCI_DRV_NAME "msm_cci"
@@ -323,9 +328,15 @@ static int32_t msm_cci_i2c_read(struct v4l2_subdev *sd,
 	 * If this call fails, don't proceed with i2c_read call. This is to
 	 * avoid overflow / underflow of queue
 	 */
+#ifdef CONFIG_PANTECH_CAMERA
+	/* Only the bytes this read needs have to fit in the queue */
+	rc = msm_cci_validate_queue(cci_dev, read_cfg->num_byte - 1,
+		master, queue);
+#else
 	rc = msm_cci_validate_queue(cci_dev,
 		cci_dev->cci_i2c_queue_info[master][queue].max_queue_size - 1,
 		master, queue);
+#endif
 	if (rc < 0) {
 		pr_err("%s:%d Initial validataion failed rc %d\n", __func__,
 			__LINE__, rc);
@@ -1010,14 +1021,33 @@ static void msm_cci_init_clk_params(struct cci_device *cci_dev)
 
 	for (count = 0; count < MASTER_MAX; count++) {
 
+		const char *name;
+
 		if (MASTER_0 == count)
-			src_node = of_parse_phandle(of_node,
-				"qcom,cci-master0", 0);
+			name = "qcom,cci-master0";
 		else if (MASTER_1 == count)
-			src_node = of_parse_phandle(of_node,
-				"qcom,cci-master1", 0);
+			name = "qcom,cci-master1";
 		else
 			return;
+
+		/*
+		 * The timings are either in a node the property points to,
+		 * or in a child node of that name.
+		 */
+		src_node = of_parse_phandle(of_node, name, 0);
+		if (!src_node) {
+			struct device_node *child;
+
+			for_each_child_of_node(of_node, child)
+				if (!strcmp(child->name, name)) {
+					src_node = child;
+					break;
+				}
+		}
+		if (!src_node) {
+			pr_err("%s: no timings for %s\n", __func__, name);
+			continue;
+		}
 
 		rc = of_property_read_u32(src_node, "qcom,hw-thigh", &val);
 		CDBG("%s qcom,hw-thigh %d, rc %d\n", __func__, val, rc);
@@ -1070,10 +1100,9 @@ static void msm_cci_init_clk_params(struct cci_device *cci_dev)
 		CDBG("%s qcom,hw-tsp %d, rc %d\n", __func__, val, rc);
 		if (!rc)
 			cci_dev->cci_clk_params[count].hw_tsp = val;
+
+		of_node_put(src_node);
 	}
-	of_node_put(src_node);
-	src_node = NULL;
-	return;
 }
 
 struct v4l2_subdev *msm_cci_get_subdev(void)
