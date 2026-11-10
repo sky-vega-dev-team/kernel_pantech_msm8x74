@@ -55,7 +55,7 @@
 	eeprom0: qcom,eeprom@a0 {
 		cell-index = <0>;
 		reg = <0xa0 0x0>;
-		qcom,eeprom-name = "rohm";
+		qcom,eeprom-name = "rohm_eeprom";
 		compatible = "qcom,eeprom";
 		qcom,slave-addr = <0xa0>;
 		qcom,cci-master = <0>;
