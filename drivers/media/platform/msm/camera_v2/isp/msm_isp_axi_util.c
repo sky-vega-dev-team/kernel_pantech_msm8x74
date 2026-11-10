@@ -398,6 +398,102 @@ static void msm_isp_reset_framedrop(struct vfe_device *vfe_dev,
 	vfe_dev->hw_info->vfe_ops.axi_ops.cfg_framedrop(vfe_dev, stream_info);
 }
 
+/*
+ * With a frame split over both VFEs, both halves of a frame go to the same
+ * buffer, which each VFE takes in turn from a shared queue. Userspace starts
+ * the CAMIF of one VFE, and that of the other only once the first start has
+ * returned, a few milliseconds later; when a start of frame falls in
+ * between, one VFE starts a frame later than the other, and from then on
+ * writes the next frame into each buffer, so the two halves of every
+ * picture come from different frames. When the other VFE has streams set
+ * up and is about to start too, hold the CAMIF of the first one back and
+ * start both together, or the first alone if the other does not follow.
+ */
+#define DUAL_START_TIMEOUT_MS 100
+
+static struct vfe_device *vfe_devices[2];
+static DEFINE_SPINLOCK(dual_start_lock);
+static struct vfe_device *dual_start_waiter;
+
+void msm_isp_register_vfe(struct vfe_device *vfe_dev)
+{
+	if (vfe_dev->pdev->id >= 0 && vfe_dev->pdev->id < ARRAY_SIZE(vfe_devices))
+		vfe_devices[vfe_dev->pdev->id] = vfe_dev;
+}
+
+/* Whether a VFE has pixel streams set up that it has not started yet */
+static bool msm_isp_about_to_start(struct vfe_device *vfe_dev)
+{
+	struct msm_vfe_axi_shared_data *axi_data = &vfe_dev->axi_data;
+	int i;
+
+	if (axi_data->src_info[VFE_PIX_0].active)
+		return false;
+	for (i = 0; i < MAX_NUM_STREAM; i++) {
+		struct msm_vfe_axi_stream *stream_info = &axi_data->stream_info[i];
+
+		if (stream_info->stream_src < RDI_INTF_0 &&
+			(stream_info->state == INACTIVE ||
+			stream_info->state == START_PENDING ||
+			stream_info->state == STARTING))
+			return true;
+	}
+	return false;
+}
+
+static void msm_isp_enable_camif(struct vfe_device *vfe_dev)
+{
+	vfe_dev->hw_info->vfe_ops.core_ops.
+		update_camif_state(vfe_dev, ENABLE_CAMIF);
+}
+
+static void msm_isp_dual_start_timeout(struct work_struct *work)
+{
+	struct vfe_device *vfe_dev;
+	unsigned long flags;
+
+	spin_lock_irqsave(&dual_start_lock, flags);
+	vfe_dev = dual_start_waiter;
+	dual_start_waiter = NULL;
+	if (vfe_dev)
+		msm_isp_enable_camif(vfe_dev);
+	spin_unlock_irqrestore(&dual_start_lock, flags);
+	if (vfe_dev)
+		pr_warn("%s: VFE%d starts alone\n", __func__, vfe_dev->pdev->id);
+}
+
+static DECLARE_DELAYED_WORK(dual_start_work, msm_isp_dual_start_timeout);
+
+static void msm_isp_enable_camif_paired(struct vfe_device *vfe_dev)
+{
+	struct vfe_device *partner = NULL;
+	unsigned long flags;
+	int id = vfe_dev->pdev->id;
+
+	if (id >= 0 && id < ARRAY_SIZE(vfe_devices))
+		partner = vfe_devices[!id];
+
+	spin_lock_irqsave(&dual_start_lock, flags);
+	if (partner && dual_start_waiter == partner) {
+		/* The partner was held back for us: start both now */
+		msm_isp_enable_camif(partner);
+		msm_isp_enable_camif(vfe_dev);
+		dual_start_waiter = NULL;
+		spin_unlock_irqrestore(&dual_start_lock, flags);
+		cancel_delayed_work(&dual_start_work);
+		return;
+	}
+	if (!partner || !msm_isp_about_to_start(partner)) {
+		spin_unlock_irqrestore(&dual_start_lock, flags);
+		msm_isp_enable_camif(vfe_dev);
+		return;
+	}
+	dual_start_waiter = vfe_dev;
+	spin_unlock_irqrestore(&dual_start_lock, flags);
+	schedule_delayed_work(&dual_start_work,
+		msecs_to_jiffies(DUAL_START_TIMEOUT_MS));
+}
+
 void msm_isp_sof_notify(struct vfe_device *vfe_dev,
 	enum msm_vfe_input_src frame_src, struct msm_isp_timestamp *ts) {
 	struct msm_isp_event_data sof_event;
@@ -1118,8 +1214,7 @@ static int msm_isp_start_axi_stream(struct vfe_device *vfe_dev,
 
 	msm_isp_update_camif_output_count(vfe_dev, stream_cfg_cmd);
 	if (camif_update == ENABLE_CAMIF)
-		vfe_dev->hw_info->vfe_ops.core_ops.
-			update_camif_state(vfe_dev, camif_update);
+		msm_isp_enable_camif_paired(vfe_dev);
 
 	if (wait_for_complete)
 		rc = msm_isp_axi_wait_for_cfg_done(vfe_dev, camif_update);
