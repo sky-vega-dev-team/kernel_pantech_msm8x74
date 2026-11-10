@@ -14,7 +14,24 @@
 #define pr_fmt(fmt) "%s:%d " fmt, __func__, __LINE__
 
 #include <linux/module.h>
+#include <linux/leds.h>
 #include "msm_led_flash.h"
+
+#ifdef CONFIG_PANTECH_CAMERA
+/*
+ * The PM8941 flash of the Pantech phones is switched between its torch
+ * and flash modes by the LED driver, and runs at half the current given
+ * in the device tree.
+ */
+#define LED_SET_TORCH_MODE(on)	qpnp_set_flash_mode(on)
+#define LED_CURRENT(c)		((c) / 2)
+
+extern int32_t msm_led_torch_create_classdev(struct platform_device *pdev,
+	void *data);
+#else
+#define LED_SET_TORCH_MODE(on)	do { } while (0)
+#define LED_CURRENT(c)		(c)
+#endif
 
 #define FLASH_NAME "camera-led-flash"
 
@@ -56,6 +73,7 @@ static int32_t msm_led_trigger_config(struct msm_led_flash_ctrl_t *fctrl,
 
 	switch (cfg->cfgtype) {
 	case MSM_CAMERA_LED_OFF:
+		LED_SET_TORCH_MODE(0);
 		for (i = 0; i < fctrl->num_sources; i++)
 			if (fctrl->flash_trigger[i])
 				led_trigger_event(fctrl->flash_trigger[i], 0);
@@ -64,22 +82,25 @@ static int32_t msm_led_trigger_config(struct msm_led_flash_ctrl_t *fctrl,
 		break;
 
 	case MSM_CAMERA_LED_LOW:
+		LED_SET_TORCH_MODE(1);
 		if (fctrl->torch_trigger)
 			led_trigger_event(fctrl->torch_trigger,
-				fctrl->torch_op_current);
+				LED_CURRENT(fctrl->torch_op_current));
 		break;
 
 	case MSM_CAMERA_LED_HIGH:
+		LED_SET_TORCH_MODE(0);
 		if (fctrl->torch_trigger)
 			led_trigger_event(fctrl->torch_trigger, 0);
 		for (i = 0; i < fctrl->num_sources; i++)
 			if (fctrl->flash_trigger[i])
 				led_trigger_event(fctrl->flash_trigger[i],
-					fctrl->flash_op_current[i]);
+					LED_CURRENT(fctrl->flash_op_current[i]));
 		break;
 
 	case MSM_CAMERA_LED_INIT:
 	case MSM_CAMERA_LED_RELEASE:
+		LED_SET_TORCH_MODE(0);
 		for (i = 0; i < fctrl->num_sources; i++)
 			if (fctrl->flash_trigger[i])
 				led_trigger_event(fctrl->flash_trigger[i], 0);
@@ -207,6 +228,10 @@ static int32_t msm_led_trigger_probe(struct platform_device *pdev)
 		}
 	}
 	rc = msm_led_flash_create_v4lsubdev(pdev, &fctrl);
+#ifdef CONFIG_PANTECH_CAMERA
+	if (!rc)
+		msm_led_torch_create_classdev(pdev, &fctrl);
+#endif
 	return rc;
 }
 
