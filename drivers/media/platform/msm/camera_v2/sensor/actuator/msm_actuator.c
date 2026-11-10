@@ -13,6 +13,7 @@
 #define pr_fmt(fmt) "%s:%d " fmt, __func__, __LINE__
 
 #include <linux/module.h>
+#include <linux/delay.h>
 #include "msm_sd.h"
 #include "msm_actuator.h"
 #include "msm_cci.h"
@@ -29,11 +30,17 @@ DEFINE_MSM_MUTEX(msm_actuator_mutex);
 
 static struct msm_actuator msm_vcm_actuator_table;
 static struct msm_actuator msm_piezo_actuator_table;
+#ifdef CONFIG_PANTECH_CAMERA_ACT_WV560
+static struct msm_actuator msm_hvcm_actuator_table;
+#endif
 
 static struct i2c_driver msm_actuator_i2c_driver;
 static struct msm_actuator *actuators[] = {
 	&msm_vcm_actuator_table,
 	&msm_piezo_actuator_table,
+#ifdef CONFIG_PANTECH_CAMERA_ACT_WV560
+	&msm_hvcm_actuator_table,
+#endif
 };
 
 static int32_t msm_actuator_piezo_set_default_focus(
@@ -87,6 +94,11 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 
 			if (write_arr[i].reg_addr != 0xFFFF) {
 				i2c_byte1 = write_arr[i].reg_addr;
+#ifdef CONFIG_PANTECH_CAMERA_RUMBA_SA
+				/* The DAC is a little endian word */
+				i2c_byte2 = ((value & 0xFF) << 8) |
+					((value & 0xFF00) >> 8);
+#else
 				i2c_byte2 = value;
 				if (size != (i+1)) {
 					i2c_byte2 = value & 0xFF;
@@ -108,6 +120,7 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 					i2c_byte1 = write_arr[i].reg_addr;
 					i2c_byte2 = (value & 0xFF00) >> 8;
 				}
+#endif
 			} else {
 				i2c_byte1 = (value & 0xFF00) >> 8;
 				i2c_byte2 = value & 0xFF;
@@ -125,6 +138,9 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 		i2c_tbl[a_ctrl->i2c_tbl_index].reg_addr = i2c_byte1;
 		i2c_tbl[a_ctrl->i2c_tbl_index].reg_data = i2c_byte2;
 		i2c_tbl[a_ctrl->i2c_tbl_index].delay = delay;
+#ifdef CONFIG_PANTECH_CAMERA_RUMBA_SA
+		a_ctrl->i2c_data_type = MSM_ACTUATOR_WORD_DATA;
+#endif
 		a_ctrl->i2c_tbl_index++;
 	}
 	CDBG("Exit\n");
@@ -141,6 +157,17 @@ static int32_t msm_actuator_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
 	for (i = 0; i < size; i++) {
 		switch (type) {
 		case MSM_ACTUATOR_BYTE_DATA:
+#ifdef CONFIG_PANTECH_CAMERA_RUMBA_SA
+			/* The mode register of the driver IC is a word */
+			if (settings[i].reg_addr == 0x02C0) {
+				rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+					&a_ctrl->i2c_client,
+					settings[i].reg_addr,
+					settings[i].reg_data,
+					MSM_CAMERA_I2C_WORD_DATA);
+				break;
+			}
+#endif
 			rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write(
 				&a_ctrl->i2c_client,
 				settings[i].reg_addr,
@@ -294,6 +321,10 @@ static int32_t msm_actuator_move_focus(
 		step_boundary =
 			a_ctrl->region_params[a_ctrl->curr_region_index].
 			step_bound[dir];
+#ifdef CONFIG_PANTECH_CAMERA_RUMBA_SA
+		/* The closed loop driver moves to the target in one go */
+		step_boundary = dest_step_pos;
+#endif
 		if ((dest_step_pos * sign_dir) <=
 			(step_boundary * sign_dir)) {
 
@@ -338,6 +369,101 @@ static int32_t msm_actuator_move_focus(
 	return rc;
 }
 
+#ifdef CONFIG_PANTECH_CAMERA_ACT_WV560
+/*
+ * The WV560 is calibrated at power on. Start from the lens position it
+ * reports instead of moving the lens.
+ */
+static int32_t msm_actuator_hvcm_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
+	uint16_t size, enum msm_actuator_data_type type,
+	struct reg_settings_t *settings)
+{
+	struct msm_camera_i2c_client *client = &a_ctrl->i2c_client;
+	int32_t (*write)(struct msm_camera_i2c_client *, uint32_t, uint16_t,
+		enum msm_camera_i2c_data_type) = client->i2c_func_tbl->i2c_write;
+	int32_t (*read)(struct msm_camera_i2c_client *, uint32_t, uint16_t *,
+		enum msm_camera_i2c_data_type) = client->i2c_func_tbl->i2c_read;
+	uint16_t torg = 0, posmsb = 0, poslsb = 0;
+	int32_t rc;
+
+	CDBG("Enter\n");
+	msleep(1);
+	/* Software reset */
+	rc = write(client, 0x00, 0x08, MSM_CAMERA_I2C_BYTE_DATA);
+	msleep(3);
+	rc |= write(client, 0x03, 0x00, MSM_CAMERA_I2C_BYTE_DATA);
+	rc |= write(client, 0x00, 0x06, MSM_CAMERA_I2C_BYTE_DATA);
+	rc |= read(client, 0x2A, &torg, MSM_CAMERA_I2C_BYTE_DATA);
+	rc |= write(client, 0x0A, 0x0F & torg, MSM_CAMERA_I2C_BYTE_DATA);
+
+	/* Keep the current lens position */
+	rc |= read(client, 0x04, &poslsb, MSM_CAMERA_I2C_BYTE_DATA);
+	rc |= read(client, 0x05, &posmsb, MSM_CAMERA_I2C_BYTE_DATA);
+	posmsb &= 0x03;
+	rc |= write(client, 0x01, poslsb, MSM_CAMERA_I2C_BYTE_DATA);
+	rc |= write(client, 0x02, posmsb, MSM_CAMERA_I2C_BYTE_DATA);
+	CDBG("%s position %d\n", __func__, (posmsb << 8) | poslsb);
+
+	rc |= write(client, 0x00, 0x07, MSM_CAMERA_I2C_BYTE_DATA);
+	msleep(10);
+	rc |= write(client, 0x0A, 0x20 | (0x0F & torg),
+		MSM_CAMERA_I2C_BYTE_DATA);
+
+	a_ctrl->curr_step_pos = 0;
+	CDBG("Exit\n");
+	return rc;
+}
+
+/* The WV560 counts its steps from the macro end */
+static int32_t msm_actuator_hvcm_init_step_table(
+	struct msm_actuator_ctrl_t *a_ctrl,
+	struct msm_actuator_set_info_t *set_info)
+{
+	int16_t code_per_step = 0;
+	int16_t cur_code = 0;
+	int16_t step_index = 0, region_index = 0, last_step = 0;
+	uint16_t step_boundary = 0;
+	uint32_t max_code_size = 1;
+	uint16_t data_size = set_info->actuator_params.data_size;
+
+	for (; data_size > 0; data_size--)
+		max_code_size *= 2;
+
+	kfree(a_ctrl->step_position_table);
+	a_ctrl->step_position_table =
+		kmalloc(sizeof(uint16_t) *
+		(set_info->af_tuning_params.total_steps + 1), GFP_KERNEL);
+	if (a_ctrl->step_position_table == NULL)
+		return -ENOMEM;
+
+	last_step = a_ctrl->region_params[1].step_bound[0];
+	cur_code = set_info->af_tuning_params.initial_code;
+	a_ctrl->step_position_table[last_step - step_index] = cur_code;
+	step_index++;
+	for (region_index = 0; region_index < a_ctrl->region_size;
+		region_index++) {
+		code_per_step =
+			a_ctrl->region_params[region_index].code_per_step;
+		step_boundary =
+			a_ctrl->region_params[region_index].step_bound[MOVE_NEAR];
+		for (; step_index <= step_boundary; step_index++) {
+			cur_code += code_per_step;
+			if (cur_code < max_code_size) {
+				a_ctrl->step_position_table[last_step -
+					step_index] = cur_code;
+			} else {
+				for (; step_index <
+					set_info->af_tuning_params.total_steps;
+					step_index++)
+					a_ctrl->step_position_table[last_step -
+						step_index] = max_code_size;
+			}
+		}
+	}
+	return 0;
+}
+#endif
+
 static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 	struct msm_actuator_set_info_t *set_info)
 {
@@ -379,7 +505,11 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 		step_boundary =
 			a_ctrl->region_params[region_index].
 			step_bound[MOVE_NEAR];
-		if (step_boundary > set_info->af_tuning_params.total_steps - 1) {
+		/*
+		 * The table has room for total_steps + 1 positions; the
+		 * Pantech tunings end their last region on total_steps.
+		 */
+		if (step_boundary > set_info->af_tuning_params.total_steps) {
 			pr_err("%s: Error af steps mismatch!", __func__);
 			return -EFAULT;
 		}
@@ -979,6 +1109,20 @@ static struct msm_actuator msm_piezo_actuator_table = {
 		.actuator_parse_i2c_params = msm_actuator_parse_i2c_params,
 	},
 };
+
+#ifdef CONFIG_PANTECH_CAMERA_ACT_WV560
+static struct msm_actuator msm_hvcm_actuator_table = {
+	.act_type = ACTUATOR_HVCM,
+	.func_tbl = {
+		.actuator_init_step_table = msm_actuator_hvcm_init_step_table,
+		.actuator_move_focus = msm_actuator_move_focus,
+		.actuator_write_focus = msm_actuator_write_focus,
+		.actuator_set_default_focus = msm_actuator_set_default_focus,
+		.actuator_init_focus = msm_actuator_hvcm_init_focus,
+		.actuator_parse_i2c_params = msm_actuator_parse_i2c_params,
+	},
+};
+#endif
 
 module_init(msm_actuator_init_module);
 MODULE_DESCRIPTION("MSM ACTUATOR");
