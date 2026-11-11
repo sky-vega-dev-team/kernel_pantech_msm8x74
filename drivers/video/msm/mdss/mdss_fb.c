@@ -538,7 +538,8 @@ static ssize_t msm_fb_hbm_store(struct device *dev, struct device_attribute *att
 	ctrl_pdata = container_of(pdata, struct mdss_panel_data,
 				panel_info);
 
-	strcpy(ctrl_pdata->hbm_state_ret,buf);
+	strlcpy(ctrl_pdata->hbm_state_ret, buf,
+		sizeof(ctrl_pdata->hbm_state_ret));
 	
  	if(strncmp(ctrl_pdata->hbm_state_ret,"off",3) == 0)
 		ctrl_pdata->hbm_control(ctrl_pdata, 0);
@@ -577,7 +578,8 @@ static ssize_t msm_fb_acl_store(struct device *dev, struct device_attribute *att
 	ctrl_pdata = container_of(pdata, struct mdss_panel_data,
 				panel_info);
 
-	strcpy(ctrl_pdata->hbm_state_ret,buf);
+	strlcpy(ctrl_pdata->hbm_state_ret, buf,
+		sizeof(ctrl_pdata->hbm_state_ret));
 	
  	if(strncmp(ctrl_pdata->hbm_state_ret,"off",3) == 0)
 		ctrl_pdata->acl_control(ctrl_pdata, 0);
@@ -607,7 +609,7 @@ static ssize_t msm_fb_cabc_store(struct device *dev, struct device_attribute *at
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)fbi->par;
 	struct mdss_panel_info *pdata = mfd->panel_info;
 	struct mdss_panel_data * ctrl_pdata =NULL;
- 	strcpy(cabc_state_ret,buf);
+ 	strlcpy(cabc_state_ret, buf, sizeof(cabc_state_ret));
  	if(strncmp(cabc_state_ret,"on",2) == 0)
 		cabc = true;
 	else if(strncmp(cabc_state_ret,"off",3) == 0) 
@@ -846,7 +848,7 @@ static ssize_t msm_fb_cmds_store(struct device *dev, struct device_attribute *at
 				panel_info);
 	panel_pdata = container_of(ctrl_pdata, struct mdss_dsi_ctrl_pdata,panel_data);
 
-	strcpy(cmds_state_ret,buf);
+	strlcpy(cmds_state_ret, buf, sizeof(cmds_state_ret));
  	if(strncmp(cmds_state_ret,"on",2) == 0){
 
 		pr_info("msm_fb_cmds_store : on----------->\n");	
@@ -896,7 +898,7 @@ static ssize_t msm_fb_back_ctl_store(struct device *dev, struct device_attribute
 	ctrl_pdata = container_of(pdata, struct mdss_panel_data,
 				panel_info);
 	
-	strcpy(back_state_ret,buf);
+	strlcpy(back_state_ret, buf, sizeof(back_state_ret));
 	if(!mfd->panel_power_on)
 	return count;
  	if(strncmp(back_state_ret,"on",2) == 0){
