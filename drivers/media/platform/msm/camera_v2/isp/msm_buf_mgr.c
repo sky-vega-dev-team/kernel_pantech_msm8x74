@@ -16,6 +16,7 @@
 #include <linux/list.h>
 #include <linux/ioctl.h>
 #include <linux/spinlock.h>
+#include <linux/mutex.h>
 #include <linux/videodev2.h>
 #include <linux/proc_fs.h>
 #include <linux/videodev2.h>
@@ -770,7 +771,14 @@ static void msm_isp_detach_ctx(struct msm_isp_buf_mgr *buf_mgr)
 			buf_mgr->iommu_ctx[i]);
 }
 
-static int msm_isp_init_isp_buf_mgr(
+/*
+ * Both VFEs share the buffer manager, and each holds only its own lock
+ * around the calls into it: let one set up, request, queue or release
+ * buffers at a time, or the two can free the same buffers twice.
+ */
+static DEFINE_MUTEX(buf_mgr_mutex);
+
+static int msm_isp_init_isp_buf_mgr_locked(
 	struct msm_isp_buf_mgr *buf_mgr,
 	const char *ctx_name, uint16_t num_buf_q)
 {
@@ -800,22 +808,39 @@ bufq_error:
 	return rc;
 }
 
+static int msm_isp_init_isp_buf_mgr(
+	struct msm_isp_buf_mgr *buf_mgr,
+	const char *ctx_name, uint16_t num_buf_q)
+{
+	int rc;
+
+	mutex_lock(&buf_mgr_mutex);
+	rc = msm_isp_init_isp_buf_mgr_locked(buf_mgr, ctx_name, num_buf_q);
+	mutex_unlock(&buf_mgr_mutex);
+	return rc;
+}
+
 static int msm_isp_deinit_isp_buf_mgr(
 	struct msm_isp_buf_mgr *buf_mgr)
 {
-	if (--buf_mgr->open_count)
+	mutex_lock(&buf_mgr_mutex);
+	if (--buf_mgr->open_count) {
+		mutex_unlock(&buf_mgr_mutex);
 		return 0;
+	}
 	msm_isp_release_all_bufq(buf_mgr);
 	ion_client_destroy(buf_mgr->client);
 	kfree(buf_mgr->bufq);
 	buf_mgr->num_buf_q = 0;
 	msm_isp_detach_ctx(buf_mgr);
+	mutex_unlock(&buf_mgr_mutex);
 	return 0;
 }
 
 int msm_isp_proc_buf_cmd(struct msm_isp_buf_mgr *buf_mgr,
 	unsigned int cmd, void *arg)
 {
+	mutex_lock(&buf_mgr_mutex);
 	switch (cmd) {
 	case VIDIOC_MSM_ISP_REQUEST_BUF: {
 		struct msm_isp_buf_request *buf_req = arg;
@@ -833,6 +858,7 @@ int msm_isp_proc_buf_cmd(struct msm_isp_buf_mgr *buf_mgr,
 		break;
 	}
 	}
+	mutex_unlock(&buf_mgr_mutex);
 	return 0;
 }
 
