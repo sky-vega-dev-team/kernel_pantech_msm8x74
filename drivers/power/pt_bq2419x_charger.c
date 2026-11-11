@@ -10,6 +10,7 @@
 #include <linux/qpnp/qpnp-adc.h>
 #include <linux/power/pt_max17058_battery.h>
 #include <linux/power_supply.h>
+#include <linux/wakelock.h>
 #include <linux/bitops.h>
 #include <linux/ratelimit.h>
 #include <linux/regulator/driver.h>

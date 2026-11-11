@@ -23,6 +23,7 @@
 #include <linux/interrupt.h>
 #include <linux/slab.h>
 #include <linux/power_supply.h>
+#include <linux/wakelock.h>
 #include <linux/i2c/smb350.h>
 #include <linux/bitops.h>
 #include <linux/of.h>

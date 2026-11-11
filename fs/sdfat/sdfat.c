@@ -729,8 +729,8 @@ static struct dentry *sdfat_lookup(struct inode *dir, struct dentry *dentry,
 #endif
 
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0)
-	/* NOTHING NOW */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0) || defined(_LINUX_UIDGID_H)
+	/* The kernel has kuid_t and kgid_t, backported or not */
 #else /* LINUX_VERSION_CODE < KERNEL_VERSION(3, 5, 0) */
 #define GLOBAL_ROOT_UID (0)
 #define GLOBAL_ROOT_GID (0)
