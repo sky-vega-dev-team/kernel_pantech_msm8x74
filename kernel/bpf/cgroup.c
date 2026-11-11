@@ -16,7 +16,7 @@
 #include <linux/bpf-cgroup.h>
 #include <net/sock.h>
 
-struct static_key cgroup_bpf_enabled_key = STATIC_KEY_INIT_FALSE;
+DEFINE_STATIC_KEY_FALSE(cgroup_bpf_enabled_key);
 EXPORT_SYMBOL(cgroup_bpf_enabled_key);
 
 /**
@@ -35,7 +35,7 @@ void cgroup_bpf_put(struct cgroup *cgrp)
 			list_del(&pl->node);
 			bpf_prog_put(pl->prog);
 			kfree(pl);
-			static_key_slow_dec(&cgroup_bpf_enabled_key);
+			static_branch_dec(&cgroup_bpf_enabled_key);
 		}
 		bpf_prog_array_free(cgrp->bpf.effective[type]);
 	}
@@ -67,7 +67,7 @@ static bool hierarchy_allows_attach(struct cgroup *cgrp,
 {
 	struct cgroup *p;
 
-	p = cgrp->parent;
+	p = cgroup_parent(cgrp);
 	if (!p)
 		return true;
 	do {
@@ -80,7 +80,7 @@ static bool hierarchy_allows_attach(struct cgroup *cgrp,
 		WARN_ON_ONCE(cnt > 1);
 		if (cnt == 1)
 			return !!(flags & BPF_F_ALLOW_OVERRIDE);
-		p = p->parent;
+		p = cgroup_parent(p);
 	} while (p);
 	return true;
 }
@@ -95,7 +95,7 @@ static int compute_effective_progs(struct cgroup *cgrp,
 				   enum bpf_attach_type type,
 				   struct bpf_prog_array __rcu **array)
 {
-	struct bpf_prog_array __rcu *progs;
+	struct bpf_prog_array *progs;
 	struct bpf_prog_list *pl;
 	struct cgroup *p = cgrp;
 	int cnt = 0;
@@ -104,7 +104,7 @@ static int compute_effective_progs(struct cgroup *cgrp,
 	do {
 		if (cnt == 0 || (p->bpf.flags[type] & BPF_F_ALLOW_MULTI))
 			cnt += prog_list_length(&p->bpf.progs[type]);
-		p = p->parent;
+		p = cgroup_parent(p);
 	} while (p);
 
 	progs = bpf_prog_array_alloc(cnt, GFP_KERNEL);
@@ -120,13 +120,12 @@ static int compute_effective_progs(struct cgroup *cgrp,
 					    &p->bpf.progs[type], node) {
 				if (!pl->prog)
 					continue;
-				rcu_dereference_protected(progs, 1)->
-					progs[cnt++] = pl->prog;
+				progs->progs[cnt++] = pl->prog;
 			}
-		p = p->parent;
+		p = cgroup_parent(p);
 	} while (p);
 
-	*array = progs;
+	rcu_assign_pointer(*array, progs);
 	return 0;
 }
 
@@ -189,7 +188,7 @@ int __cgroup_bpf_attach(struct cgroup *cgrp, struct bpf_prog *prog,
 {
 	struct list_head *progs = &cgrp->bpf.progs[type];
 	struct bpf_prog *old_prog = NULL;
-	struct cgroup *desc;
+	struct cgroup_subsys_state *css;
 	struct bpf_prog_list *pl;
 	bool pl_was_allocated;
 	u32 old_flags;
@@ -243,8 +242,8 @@ int __cgroup_bpf_attach(struct cgroup *cgrp, struct bpf_prog *prog,
 	cgrp->bpf.flags[type] = flags;
 
 	/* allocate and recompute effective prog arrays */
-	rcu_read_lock();
-	cgroup_for_each_descendant_pre(desc, cgrp) {
+	css_for_each_descendant_pre(css, &cgrp->self) {
+		struct cgroup *desc = container_of(css, struct cgroup, self);
 
 		err = compute_effective_progs(desc, type, &desc->bpf.inactive);
 		if (err)
@@ -252,17 +251,17 @@ int __cgroup_bpf_attach(struct cgroup *cgrp, struct bpf_prog *prog,
 	}
 
 	/* all allocations were successful. Activate all prog arrays */
-	cgroup_for_each_descendant_pre(desc, cgrp) {
+	css_for_each_descendant_pre(css, &cgrp->self) {
+		struct cgroup *desc = container_of(css, struct cgroup, self);
 
 		activate_effective_progs(desc, type, desc->bpf.inactive);
 		desc->bpf.inactive = NULL;
 	}
-	rcu_read_unlock();
 
-	static_key_slow_inc(&cgroup_bpf_enabled_key);
+	static_branch_inc(&cgroup_bpf_enabled_key);
 	if (old_prog) {
 		bpf_prog_put(old_prog);
-		static_key_slow_dec(&cgroup_bpf_enabled_key);
+		static_branch_dec(&cgroup_bpf_enabled_key);
 	}
 	return 0;
 
@@ -270,12 +269,12 @@ cleanup:
 	/* oom while computing effective. Free all computed effective arrays
 	 * since they were not activated
 	 */
-	cgroup_for_each_descendant_pre(desc, cgrp) {
+	css_for_each_descendant_pre(css, &cgrp->self) {
+		struct cgroup *desc = container_of(css, struct cgroup, self);
 
 		bpf_prog_array_free(desc->bpf.inactive);
 		desc->bpf.inactive = NULL;
 	}
-	rcu_read_unlock();
 
 	/* and cleanup the prog list */
 	pl->prog = old_prog;
@@ -301,7 +300,7 @@ int __cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
 	struct list_head *progs = &cgrp->bpf.progs[type];
 	u32 flags = cgrp->bpf.flags[type];
 	struct bpf_prog *old_prog = NULL;
-	struct cgroup *desc;
+	struct cgroup_subsys_state *css;
 	struct bpf_prog_list *pl;
 	int err;
 
@@ -341,8 +340,8 @@ int __cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
 	}
 
 	/* allocate and recompute effective prog arrays */
-	rcu_read_lock();
-	cgroup_for_each_descendant_pre(desc, cgrp) {
+	css_for_each_descendant_pre(css, &cgrp->self) {
+		struct cgroup *desc = container_of(css, struct cgroup, self);
 
 		err = compute_effective_progs(desc, type, &desc->bpf.inactive);
 		if (err)
@@ -350,13 +349,12 @@ int __cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
 	}
 
 	/* all allocations were successful. Activate all prog arrays */
-	cgroup_for_each_descendant_pre(desc, cgrp) {
+	css_for_each_descendant_pre(css, &cgrp->self) {
+		struct cgroup *desc = container_of(css, struct cgroup, self);
 
 		activate_effective_progs(desc, type, desc->bpf.inactive);
 		desc->bpf.inactive = NULL;
 	}
-	rcu_read_unlock();
-
 
 	/* now can actually delete it from this cgroup list */
 	list_del(&pl->node);
@@ -366,19 +364,19 @@ int __cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
 		cgrp->bpf.flags[type] = 0;
 
 	bpf_prog_put(old_prog);
-	static_key_slow_dec(&cgroup_bpf_enabled_key);
+	static_branch_dec(&cgroup_bpf_enabled_key);
 	return 0;
 
 cleanup:
 	/* oom while computing effective. Free all computed effective arrays
 	 * since they were not activated
 	 */
-	cgroup_for_each_descendant_pre(desc, cgrp) {
+	css_for_each_descendant_pre(css, &cgrp->self) {
+		struct cgroup *desc = container_of(css, struct cgroup, self);
 
 		bpf_prog_array_free(desc->bpf.inactive);
 		desc->bpf.inactive = NULL;
 	}
-	rcu_read_unlock();
 
 	/* and restore back old_prog */
 	pl->prog = old_prog;
@@ -415,10 +413,7 @@ int __cgroup_bpf_run_filter(struct sock *sk,
 	if (sk->sk_family != AF_INET && sk->sk_family != AF_INET6)
 		return 0;
 
-	cgrp = sk->skcg;
-	if(cgrp == NULL)
-		return 0;
-
+	cgrp = sock_cgroup_ptr(&sk->sk_cgrp_data);
 	save_sk = skb->sk;
 	skb->sk = sk;
 	__skb_push(skb, offset);
@@ -429,3 +424,36 @@ int __cgroup_bpf_run_filter(struct sock *sk,
 	return ret == 1 ? 0 : -EPERM;
 }
 EXPORT_SYMBOL(__cgroup_bpf_run_filter);
+
+/**
+ * __cgroup_bpf_run_filter_sk() - Run a program on a sock
+ * @sk: sock structure to manipulate
+ * @type: The type of program to be exectuted
+ *
+ * socket is passed is expected to be of type INET or INET6.
+ *
+ * The program type passed in via @type must be suitable for sock
+ * filtering. No further check is performed to assert that.
+ *
+ * This function will return %-EPERM if any if an attached program was found
+ * and if it returned != 1 during execution. In all other cases, 0 is returned.
+ */
+int __cgroup_bpf_run_filter_sk(struct sock *sk,
+			       enum bpf_attach_type type)
+{
+	struct cgroup *cgrp = sock_cgroup_ptr(&sk->sk_cgrp_data);
+	struct bpf_prog *prog;
+	int ret = 0;
+
+
+	rcu_read_lock();
+
+	prog = rcu_dereference(cgrp->bpf.effective[type]->progs[0]);
+	if (prog)
+		ret = BPF_PROG_RUN(prog, sk) == 1 ? 0 : -EPERM;
+
+	rcu_read_unlock();
+
+	return ret;
+}
+EXPORT_SYMBOL(__cgroup_bpf_run_filter_sk);

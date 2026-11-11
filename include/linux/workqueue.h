@@ -467,6 +467,22 @@ static inline bool __cancel_delayed_work(struct delayed_work *work)
 	return ret;
 }
 
+/*
+ * mod_delayed_work - modify delay of or queue a delayed work (upstream 3.7)
+ *
+ * 3.4 has no atomic way to change the timer of a pending delayed work;
+ * cancel the pending instance and queue it again with the new delay.
+ */
+static inline bool mod_delayed_work(struct workqueue_struct *wq,
+				    struct delayed_work *dwork,
+				    unsigned long delay)
+{
+	bool pending = cancel_delayed_work(dwork);
+
+	queue_delayed_work(wq, dwork, delay);
+	return pending;
+}
+
 #ifndef CONFIG_SMP
 static inline long work_on_cpu(unsigned int cpu, long (*fn)(void *), void *arg)
 {

@@ -381,7 +381,7 @@ struct sock {
 	__u32			sk_mark;
 	kuid_t			sk_uid;
 	u32			sk_classid;
-	struct cgroup           *skcg;
+	struct sock_cgroup_data	sk_cgrp_data;
 	struct cg_proto		*sk_cgrp;
 	void			(*sk_state_change)(struct sock *sk);
 	void			(*sk_data_ready)(struct sock *sk, int bytes);
@@ -1005,7 +1005,12 @@ static inline struct cg_proto *parent_cg_proto(struct proto *proto,
 static inline int sk_under_cgroup_hierarchy(struct sock *sk,
                                            struct cgroup *ancestor)
 {
-       return cgroup_is_descendant(sk->skcg, ancestor);
+#ifdef CONFIG_SOCK_CGROUP_DATA
+       return cgroup_is_descendant(sock_cgroup_ptr(&sk->sk_cgrp_data),
+                                   ancestor);
+#else
+       return -ENOTSUPP;
+#endif
 }
 
 static inline bool sk_has_memory_pressure(const struct sock *sk)

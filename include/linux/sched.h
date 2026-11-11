@@ -1559,6 +1559,8 @@ struct task_struct {
 #ifdef CONFIG_CGROUPS
 	/* Control Group info protected by css_set_lock */
 	struct css_set __rcu *cgroups;
+	/* disallow userland-initiated cgroup migration */
+	unsigned no_cgroup_migration:1;
 	/* cg_list protected by css_set_lock and tsk->alloc_lock */
 	struct list_head cg_list;
 #endif
@@ -1872,6 +1874,7 @@ extern int task_free_unregister(struct notifier_block *n);
 #define PF_RANDOMIZE	0x00400000	/* randomize virtual address space */
 #define PF_SWAPWRITE	0x00800000	/* Allowed to write to swap */
 #define PF_THREAD_BOUND	0x04000000	/* Thread bound to specific cpu */
+#define PF_NO_SETAFFINITY PF_THREAD_BOUND	/* upstream 3.9 name */
 #define PF_MCE_EARLY    0x08000000      /* Early kill for mce process policy */
 #define PF_MEMPOLICY	0x10000000	/* Non-default NUMA mempolicy */
 #define PF_MUTEX_TESTER	0x20000000	/* Thread belongs to the rt mutex tester */
@@ -2570,14 +2573,13 @@ static inline void unlock_task_sighand(struct task_struct *tsk,
 }
 
 #ifdef CONFIG_CGROUPS
-static inline void threadgroup_change_begin(struct task_struct *tsk)
-{
-	down_read(&tsk->signal->group_rwsem);
-}
-static inline void threadgroup_change_end(struct task_struct *tsk)
-{
-	up_read(&tsk->signal->group_rwsem);
-}
+/*
+ * Operations which modify a threadgroup (fork, exit, exec dethreading) are
+ * wrapped by threadgroup_change_{begin|end}() so that cgroup migrations
+ * can exclude them through cgroup_threadgroup_rwsem.
+ */
+extern void threadgroup_change_begin(struct task_struct *tsk);
+extern void threadgroup_change_end(struct task_struct *tsk);
 
 /**
  * threadgroup_lock - lock threadgroup

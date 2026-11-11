@@ -2,6 +2,9 @@
 # Library configuration
 #
 
+config PERCPU_RWSEM
+	boolean
+
 config BINARY_PRINTF
 	def_bool n
 

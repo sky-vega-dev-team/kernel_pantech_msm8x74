@@ -584,8 +584,7 @@ static void *cgroup_fd_array_get_ptr(struct bpf_map *map,
 static void cgroup_fd_array_put_ptr(void *ptr)
 {
 	/* cgroup_put free cgrp after a rcu grace period */
-	struct cgroup *cgrp = (struct cgroup*) ptr;
-	atomic_dec(&cgrp->count);
+	cgroup_put(ptr);
 }
 
 static void cgroup_fd_array_free(struct bpf_map *map)

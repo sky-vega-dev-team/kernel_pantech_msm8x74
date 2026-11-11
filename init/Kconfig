@@ -598,6 +598,8 @@ config GENERIC_SCHED_CLOCK
 menuconfig CGROUPS
 	boolean "Control Group support"
 	depends on EVENTFD
+	select KERNFS
+	select PERCPU_RWSEM
 	help
 	  This option adds support for grouping sets of processes together, for
 	  use with process control subsystems such as Cpusets, CFS, memory
@@ -805,9 +807,14 @@ config DEBUG_BLK_CGROUP
 	Enable some debugging help. Currently it exports additional stat
 	files in a cgroup which can be useful for debugging.
 
+config SOCK_CGROUP_DATA
+	bool
+	default n
+
 config CGROUP_BPF
         bool "Support for eBPF programs attached to cgroups"
         depends on BPF_SYSCALL
+        select SOCK_CGROUP_DATA
         help
           Allow attaching eBPF programs to a cgroup using the bpf(2)
           syscall command BPF_PROG_ATTACH.

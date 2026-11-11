@@ -27,38 +27,23 @@ struct cgroup_cls_state
 #ifdef CONFIG_NET_CLS_CGROUP
 static inline u32 task_cls_classid(struct task_struct *p)
 {
-	int classid;
+	u32 classid;
 
 	if (in_interrupt())
 		return 0;
 
 	rcu_read_lock();
-	classid = container_of(task_subsys_state(p, net_cls_subsys_id),
+	classid = container_of(task_css(p, net_cls_cgrp_id),
 			       struct cgroup_cls_state, css)->classid;
 	rcu_read_unlock();
 
 	return classid;
 }
 #else
-extern int net_cls_subsys_id;
-
+/* cgroup controllers can no longer be modules */
 static inline u32 task_cls_classid(struct task_struct *p)
 {
-	int id;
-	u32 classid = 0;
-
-	if (in_interrupt())
-		return 0;
-
-	rcu_read_lock();
-	id = rcu_dereference_index_check(net_cls_subsys_id,
-					 rcu_read_lock_held());
-	if (id >= 0)
-		classid = container_of(task_subsys_state(p, id),
-				       struct cgroup_cls_state, css)->classid;
-	rcu_read_unlock();
-
-	return classid;
+	return 0;
 }
 #endif
 #else

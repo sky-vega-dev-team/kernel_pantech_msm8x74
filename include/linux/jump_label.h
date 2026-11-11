@@ -223,4 +223,48 @@ static inline bool static_key_enabled(struct static_key *key)
 	return (atomic_read(&key->enabled) > 0);
 }
 
+
+/*
+ * Type-safe static key API (upstream 4.3), implemented on top of the
+ * 3.4 struct static_key. The branch direction hints are not used for
+ * code patching here, the keys are tested like regular static keys.
+ */
+struct static_key_true {
+	struct static_key key;
+};
+
+struct static_key_false {
+	struct static_key key;
+};
+
+#define STATIC_KEY_TRUE_INIT  (struct static_key_true) { .key = { .enabled = ATOMIC_INIT(1) }, }
+#define STATIC_KEY_FALSE_INIT (struct static_key_false){ .key = { .enabled = ATOMIC_INIT(0) }, }
+
+#define DEFINE_STATIC_KEY_TRUE(name)	\
+	struct static_key_true name = { .key = { .enabled = ATOMIC_INIT(1) } }
+#define DECLARE_STATIC_KEY_TRUE(name)	\
+	extern struct static_key_true name
+#define DEFINE_STATIC_KEY_FALSE(name)	\
+	struct static_key_false name = { .key = { .enabled = ATOMIC_INIT(0) } }
+#define DECLARE_STATIC_KEY_FALSE(name)	\
+	extern struct static_key_false name
+
+#define static_branch_likely(x)		static_key_enabled(&(x)->key)
+#define static_branch_unlikely(x)	static_key_enabled(&(x)->key)
+
+#define static_branch_inc(x)		static_key_slow_inc(&(x)->key)
+#define static_branch_dec(x)		static_key_slow_dec(&(x)->key)
+
+#define static_branch_enable(x)					\
+do {								\
+	if (!static_key_enabled(&(x)->key))			\
+		static_key_slow_inc(&(x)->key);			\
+} while (0)
+
+#define static_branch_disable(x)				\
+do {								\
+	if (static_key_enabled(&(x)->key))			\
+		static_key_slow_dec(&(x)->key);			\
+} while (0)
+
 #endif	/* _LINUX_JUMP_LABEL_H */

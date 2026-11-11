@@ -909,7 +909,7 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 					attr->attach_flags);
 		if (ret)
 			bpf_prog_put(prog);
-		atomic_dec(&cgrp->count);
+		cgroup_put(cgrp);
 		break;
 
 	default:
@@ -955,7 +955,7 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 	ret = cgroup_bpf_detach(cgrp, prog, attr->attach_type, 0);
 	if (prog)
 		bpf_prog_put(prog);
-	atomic_dec(&cgrp->count);
+	cgroup_put(cgrp);
 	return ret;
 }
 #endif /* CONFIG_CGROUP_BPF */

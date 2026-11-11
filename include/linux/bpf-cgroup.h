@@ -11,8 +11,8 @@ struct sk_buff;
 
 #ifdef CONFIG_CGROUP_BPF
 
-extern struct static_key cgroup_bpf_enabled_key;
-#define cgroup_bpf_enabled static_key_false(&cgroup_bpf_enabled_key)
+extern struct static_key_false cgroup_bpf_enabled_key;
+#define cgroup_bpf_enabled static_branch_unlikely(&cgroup_bpf_enabled_key)
 
 struct bpf_prog_list {
 	struct list_head node;
@@ -55,6 +55,9 @@ int __cgroup_bpf_run_filter(struct sock *sk,
 			    struct sk_buff *skb,
 			    enum bpf_attach_type type);
 
+int __cgroup_bpf_run_filter_sk(struct sock *sk,
+			    enum bpf_attach_type type);
+
 /* Wrappers for __cgroup_bpf_run_filter() guarded by cgroup_bpf_enabled. */
 #define BPF_CGROUP_RUN_PROG_INET_INGRESS(sk,skb)			\
 ({									\
@@ -77,6 +80,16 @@ int __cgroup_bpf_run_filter(struct sock *sk,
 	__ret;								\
 })
 
+#define BPF_CGROUP_RUN_PROG_INET_SOCK(sk)				       \
+({									       \
+	int __ret = 0;							       \
+	if (cgroup_bpf_enabled && sk) {					       \
+		__ret = __cgroup_bpf_run_filter_sk(sk,			       \
+						 BPF_CGROUP_INET_SOCK_CREATE); \
+	}								       \
+	__ret;								       \
+})
+
 #else
 
 struct cgroup_bpf {};
@@ -85,6 +98,7 @@ static inline int cgroup_bpf_inherit(struct cgroup *cgrp) { return 0; }
 
 #define BPF_CGROUP_RUN_PROG_INET_INGRESS(sk,skb) ({ 0; })
 #define BPF_CGROUP_RUN_PROG_INET_EGRESS(sk,skb) ({ 0; })
+#define BPF_CGROUP_RUN_PROG_INET_SOCK(sk) ({ 0; })
 
 #endif /* CONFIG_CGROUP_BPF */
 
