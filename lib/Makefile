@@ -24,6 +24,7 @@ obj-y += bcd.o div64.o sort.o parser.o halfmd4.o debug_locks.o random32.o \
 	 string_helpers.o gcd.o lcm.o list_sort.o uuid.o flex_array.o \
 	 bsearch.o find_last_bit.o find_next_bit.o llist.o siphash.o
 obj-y += kstrtox.o
+obj-y += percpu-refcount.o
 obj-$(CONFIG_TEST_HASH) += test_siphash.o
 obj-$(CONFIG_TEST_KSTRTOX) += test-kstrtox.o
 
