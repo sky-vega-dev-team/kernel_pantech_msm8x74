@@ -714,6 +714,21 @@ struct hid_ll_driver {
 	int (*parse)(struct hid_device *hdev);
 };
 
+extern struct hid_ll_driver usb_hid_driver;
+
+/*
+ * Whether the device really is on USB: the bus type alone can be set by
+ * userspace through uhid.
+ */
+static inline bool hid_is_usb(struct hid_device *hdev)
+{
+#if IS_ENABLED(CONFIG_USB_HID)
+	return hdev->ll_driver == &usb_hid_driver;
+#else
+	return false;
+#endif
+}
+
 #define	PM_HINT_FULLON	1<<5
 #define PM_HINT_NORMAL	1<<1
 

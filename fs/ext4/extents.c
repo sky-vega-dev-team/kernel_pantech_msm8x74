@@ -677,8 +677,7 @@ ext4_ext_find_extent(struct inode *inode, ext4_lblk_t block,
 	if (depth < 0 || depth > EXT4_MAX_EXTENT_DEPTH) {
 		EXT4_ERROR_INODE(inode, "inode has invalid extent depth: %d",
 				 depth);
-		ret = -EIO;
-		goto err;
+		return ERR_PTR(-EIO);
 	}
 
 	/* account possible depth increase */
