@@ -110,6 +110,7 @@ static int rumba_ois_mode(enum ois_mode_t mode)
 	}
 	if (rc >= 0)
 		rumba_ois_func_tbl.ois_cur_mode = mode;
+	pr_info("DBGOIS mode %d rc %d\n", mode, rc);
 	return rc;
 }
 
@@ -158,6 +159,31 @@ static int rumba_ois_move_lens(int16_t offset_x, int16_t offset_y)
 {
 	return OIS_FAIL;
 }
+
+/* DEBUG: switch the OIS mode by hand while a camera runs */
+static int rumba_dbg_set(const char *val, const struct kernel_param *kp)
+{
+	int mode, rc;
+	uint16_t status = 0, cur = 0;
+
+	rc = kstrtoint(val, 0, &mode);
+	if (rc)
+		return rc;
+	if (mode < 0)
+		rc = rumba_ois_stop();
+	else
+		rc = rumba_ois_set_mode(mode);
+	mdelay(20);
+	ois_i2c_read(RUMBA_OISSTS_ADDR, &status, MSM_CAMERA_I2C_BYTE_DATA);
+	ois_i2c_read(RUMBA_OISMODE_ADDR, &cur, MSM_CAMERA_I2C_BYTE_DATA);
+	pr_info("DBGOIS set %d: rc %d status %d mode %d\n", mode, rc, status, cur);
+	return 0;
+}
+
+static struct kernel_param_ops rumba_dbg_ops = {
+	.set = rumba_dbg_set,
+};
+module_param_cb(debug_mode, &rumba_dbg_ops, NULL, 0644);
 
 void pantech_ois_rumba_init(struct msm_ois_ctrl_t *msm_ois_t)
 {

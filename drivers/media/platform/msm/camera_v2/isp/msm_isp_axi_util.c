@@ -763,6 +763,19 @@ int msm_isp_request_axi_stream(struct vfe_device *vfe_dev, void *arg)
 
 		vfe_dev->hw_info->vfe_ops.axi_ops.
 			cfg_wm_xbar_reg(vfe_dev, stream_info, i);
+		pr_info("DBGREQAXI vfe %d stream %d src %d plane %d wm %d out %ux%u stride %u scan %u fmt %u off %x drop %u/%x init %u\n",
+			vfe_dev->pdev->id,
+			HANDLE_TO_IDX(stream_cfg_cmd->axi_stream_handle),
+			stream_info->stream_src, i, stream_info->wm[i],
+			stream_info->plane_cfg[i].output_width,
+			stream_info->plane_cfg[i].output_height,
+			stream_info->plane_cfg[i].output_stride,
+			stream_info->plane_cfg[i].output_scan_lines,
+			stream_info->plane_cfg[i].output_plane_format,
+			stream_info->plane_cfg[i].plane_addr_offset,
+			stream_info->framedrop_period,
+			stream_info->framedrop_pattern,
+			stream_info->init_frame_drop);
 	}
 	return rc;
 }
@@ -943,11 +956,20 @@ static int msm_isp_cfg_ping_pong_address(struct vfe_device *vfe_dev,
 		goto buf_error;
 	}
 
-	for (i = 0; i < stream_info->num_planes; i++)
+	for (i = 0; i < stream_info->num_planes; i++) {
+		static int dbg_cnt;
+		if (dbg_cnt++ < 3000)
+			pr_info("DBGADDR vfe %d stream %d wm %d pp %x paddr %lx off %x len %lx frame %lu\n",
+				vfe_dev->pdev->id, stream_idx, stream_info->wm[i],
+				pingpong_status, (unsigned long)buf->mapped_info[i].paddr,
+				stream_info->plane_cfg[i].plane_addr_offset,
+				(unsigned long)buf->mapped_info[i].len,
+				vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id);
 		vfe_dev->hw_info->vfe_ops.axi_ops.update_ping_pong_addr(
 			vfe_dev, stream_info->wm[i],
 			pingpong_status, buf->mapped_info[i].paddr +
 			stream_info->plane_cfg[i].plane_addr_offset);
+	}
 
 	pingpong_bit = (~(pingpong_status >> stream_info->wm[0]) & 0x1);
 	stream_info->buf[pingpong_bit] = buf;

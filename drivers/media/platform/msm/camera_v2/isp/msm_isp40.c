@@ -384,8 +384,19 @@ static void msm_vfe40_process_violation_status(
 	if (!violation_status)
 		return;
 
-	if (violation_status & (1 << 0))
+	if (violation_status & (1 << 0)) {
 		pr_err("%s: camif violation\n", __func__);
+		pr_err("DBGVIOL vfe %d 2f8 %x 300 %x 304 %x 308 %x 31c %x 320 %x 324 %x 48 %x\n",
+			vfe_dev->pdev->id,
+			msm_camera_io_r(vfe_dev->vfe_base + 0x2F8),
+			msm_camera_io_r(vfe_dev->vfe_base + 0x300),
+			msm_camera_io_r(vfe_dev->vfe_base + 0x304),
+			msm_camera_io_r(vfe_dev->vfe_base + 0x308),
+			msm_camera_io_r(vfe_dev->vfe_base + 0x31C),
+			msm_camera_io_r(vfe_dev->vfe_base + 0x320),
+			msm_camera_io_r(vfe_dev->vfe_base + 0x324),
+			msm_camera_io_r(vfe_dev->vfe_base + 0x48));
+	}
 	if (violation_status & (1 << 1))
 		pr_err("%s: black violation\n", __func__);
 	if (violation_status & (1 << 2))

@@ -50,6 +50,15 @@ static int msm_isp_stats_cfg_ping_pong_address(struct vfe_device *vfe_dev,
 		goto buf_error;
 	}
 
+	{
+		static int dbg_cnt;
+		if (dbg_cnt++ < 3000)
+			pr_info("DBGSADDR vfe %d stats %d pp %x paddr %lx off %x len %lx\n",
+				vfe_dev->pdev->id, STATS_IDX(stream_info->stream_handle),
+				pingpong_status, (unsigned long)buf->mapped_info[0].paddr,
+				stream_info->buffer_offset,
+				(unsigned long)buf->mapped_info[0].len);
+	}
 	vfe_dev->hw_info->vfe_ops.stats_ops.update_ping_pong_addr(
 		vfe_dev, stream_info,
 		pingpong_status, buf->mapped_info[0].paddr +
