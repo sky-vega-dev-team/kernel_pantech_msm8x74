@@ -1030,8 +1030,15 @@ static long msm_vfe40_axi_halt(struct vfe_device *vfe_dev)
 	msm_camera_io_w_mb(halt_mask, vfe_dev->vfe_base + 0x2C);
 	init_completion(&vfe_dev->halt_complete);
 	msm_camera_io_w_mb(0x1, vfe_dev->vfe_base + 0x2C0);
+	/*
+	 * The second VFE of a dual VFE session does not acknowledge the
+	 * halt once its streams are off, and the camera then waits the
+	 * whole timeout on every close. Nothing is on the bus with no
+	 * stream active, so do not wait long for it then.
+	 */
 	return wait_for_completion_interruptible_timeout(
-		&vfe_dev->halt_complete, msecs_to_jiffies(500));
+		&vfe_dev->halt_complete, msecs_to_jiffies(
+			vfe_dev->axi_data.num_active_stream ? 500 : 20));
 }
 
 static uint32_t msm_vfe40_get_wm_mask(

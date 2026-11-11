@@ -1062,7 +1062,7 @@ int msm_isp_close_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 	}
 
 	rc = vfe_dev->hw_info->vfe_ops.axi_ops.halt(vfe_dev);
-	if (rc <= 0)
+	if (rc <= 0 && vfe_dev->axi_data.num_active_stream)
 		pr_err("%s: halt timeout rc=%ld\n", __func__, rc);
 
 	vfe_dev->buf_mgr->ops->buf_mgr_deinit(vfe_dev->buf_mgr);
