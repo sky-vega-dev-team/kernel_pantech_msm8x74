@@ -436,7 +436,8 @@ kgsl_mem_entry_attach_process(struct kgsl_mem_entry *entry,
 		}
 
 		spin_lock(&process->mem_lock);
-		ret = idr_get_new_above(&process->mem_idr, entry, 1,
+		/* Allocate the ID but don't attach the pointer just yet */
+		ret = idr_get_new_above(&process->mem_idr, NULL, 1,
 					&entry->id);
 		spin_unlock(&process->mem_lock);
 
