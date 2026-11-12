@@ -24,6 +24,8 @@
 #include <linux/platform_device.h>
 #include <linux/module.h>
 #include <linux/device.h>
+#include <linux/input.h>
+#include <linux/slab.h>
 #ifdef CONFIG_STATE_NOTIFIER
 #include <linux/state_notifier.h>
 #endif
@@ -39,6 +41,8 @@
 #define DEFAULT_MAX_CPUS_ONLINE		NR_CPUS
 #define DEFAULT_MAX_CPUS_ONLINE_SUSP	1
 #define DEFAULT_DOWN_LOCK_DUR		500
+#define DEFAULT_INPUT_BOOST_CPUS	2
+#define MIN_INPUT_INTERVAL		(150 * USEC_PER_MSEC)
 
 enum {
 	MSM_MPDEC_DISABLED = 0,
@@ -50,6 +54,8 @@ enum {
 static struct notifier_block notif;
 static struct delayed_work hotplug_work;
 static struct workqueue_struct *hotplug_wq;
+static struct work_struct input_boost_work;
+static u64 last_input_time;
 
 static struct cpu_hotplug {
 	unsigned int startdelay;
@@ -63,6 +69,7 @@ static struct cpu_hotplug {
 	unsigned int max_cpus_online;
 	unsigned int min_cpus_online;
 	unsigned int bricked_enabled;
+	unsigned int input_boost_cpus;
 	struct mutex bricked_hotplug_mutex;
 	struct mutex bricked_cpu_mutex;
 } hotplug = {
@@ -77,6 +84,7 @@ static struct cpu_hotplug {
 	.max_cpus_online = DEFAULT_MAX_CPUS_ONLINE,
 	.min_cpus_online = DEFAULT_MIN_CPUS_ONLINE,
 	.bricked_enabled = HOTPLUG_ENABLED,
+	.input_boost_cpus = DEFAULT_INPUT_BOOST_CPUS,
 };
 
 static unsigned int NwNs_Threshold[8] = {12, 0, 20, 7, 25, 10, 0, 18};
@@ -243,6 +251,116 @@ out:
 	return;
 }
 
+/*
+ * Bring cores up as soon as the screen is touched instead of waiting
+ * for the load to build up, they are kept for the down lock duration.
+ */
+static void __ref bricked_input_boost(struct work_struct *work)
+{
+	unsigned int cpu, target;
+
+	mutex_lock(&hotplug.bricked_cpu_mutex);
+	target = min(hotplug.input_boost_cpus, hotplug.max_cpus_online);
+	for_each_cpu_not(cpu, cpu_online_mask) {
+		if (num_online_cpus() >= target)
+			break;
+		if (cpu == 0 || cpu >= DEFAULT_MAX_CPUS_ONLINE)
+			continue;
+		cpu_up(cpu);
+		apply_down_lock(cpu);
+	}
+	mutex_unlock(&hotplug.bricked_cpu_mutex);
+}
+
+static void bricked_input_event(struct input_handle *handle,
+		unsigned int type, unsigned int code, int value)
+{
+	u64 now;
+
+	if (!hotplug.bricked_enabled || hotplug.suspended)
+		return;
+
+	if (num_online_cpus() >= min(hotplug.input_boost_cpus,
+				     hotplug.max_cpus_online))
+		return;
+
+	now = ktime_to_us(ktime_get());
+	if (now - last_input_time < MIN_INPUT_INTERVAL)
+		return;
+
+	if (work_pending(&input_boost_work))
+		return;
+
+	queue_work(hotplug_wq, &input_boost_work);
+	last_input_time = now;
+}
+
+static int bricked_input_connect(struct input_handler *handler,
+		struct input_dev *dev, const struct input_device_id *id)
+{
+	struct input_handle *handle;
+	int error;
+
+	handle = kzalloc(sizeof(struct input_handle), GFP_KERNEL);
+	if (!handle)
+		return -ENOMEM;
+
+	handle->dev = dev;
+	handle->handler = handler;
+	handle->name = MPDEC_TAG;
+
+	error = input_register_handle(handle);
+	if (error)
+		goto err2;
+
+	error = input_open_device(handle);
+	if (error)
+		goto err1;
+
+	return 0;
+err1:
+	input_unregister_handle(handle);
+err2:
+	kfree(handle);
+	return error;
+}
+
+static void bricked_input_disconnect(struct input_handle *handle)
+{
+	input_close_device(handle);
+	input_unregister_handle(handle);
+	kfree(handle);
+}
+
+static const struct input_device_id bricked_input_ids[] = {
+	/* multi-touch touchscreen */
+	{
+		.flags = INPUT_DEVICE_ID_MATCH_EVBIT |
+			INPUT_DEVICE_ID_MATCH_ABSBIT,
+		.evbit = { BIT_MASK(EV_ABS) },
+		.absbit = { [BIT_WORD(ABS_MT_POSITION_X)] =
+			BIT_MASK(ABS_MT_POSITION_X) |
+			BIT_MASK(ABS_MT_POSITION_Y) },
+	},
+	/* touchpad */
+	{
+		.flags = INPUT_DEVICE_ID_MATCH_KEYBIT |
+			INPUT_DEVICE_ID_MATCH_ABSBIT,
+		.keybit = { [BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH) },
+		.absbit = { [BIT_WORD(ABS_X)] =
+			BIT_MASK(ABS_X) | BIT_MASK(ABS_Y) },
+	},
+	{ },
+};
+
+static struct input_handler bricked_input_handler = {
+	.event		= bricked_input_event,
+	.connect	= bricked_input_connect,
+	.disconnect	= bricked_input_disconnect,
+	.name		= MPDEC_TAG,
+	.id_table	= bricked_input_ids,
+};
+
 static void bricked_hotplug_suspend(void)
 {
 	int cpu;
@@ -354,11 +472,16 @@ static int bricked_hotplug_start(void)
 	mutex_init(&hotplug.bricked_hotplug_mutex);
 
 	INIT_DELAYED_WORK(&hotplug_work, bricked_hotplug_work);
+	INIT_WORK(&input_boost_work, bricked_input_boost);
 
 	for_each_possible_cpu(cpu) {
 		dl = &per_cpu(lock_info, cpu);
 		INIT_DELAYED_WORK(&dl->lock_rem, remove_down_lock);
 	}
+
+	if (input_register_handler(&bricked_input_handler))
+		pr_err("%s: Failed to register the input handler\n",
+			MPDEC_TAG);
 
 	if (hotplug.bricked_enabled)
 		queue_delayed_work(hotplug_wq, &hotplug_work,
@@ -376,6 +499,9 @@ static void bricked_hotplug_stop(void)
 {
 	int cpu;
 	struct down_lock *dl;
+
+	input_unregister_handler(&bricked_input_handler);
+	cancel_work_sync(&input_boost_work);
 
 	for_each_possible_cpu(cpu) {
 		dl = &per_cpu(lock_info, cpu);
@@ -416,6 +542,7 @@ show_one(min_cpus_online, min_cpus_online);
 show_one(max_cpus_online, max_cpus_online);
 show_one(max_cpus_online_susp, max_cpus_online_susp);
 show_one(bricked_enabled, bricked_enabled);
+show_one(input_boost_cpus, input_boost_cpus);
 
 #define define_one_twts(file_name, arraypos)				\
 static ssize_t show_##file_name						\
@@ -621,6 +748,22 @@ static ssize_t store_max_cpus_online_susp(struct device *dev,
 	return count;
 }
 
+static ssize_t store_input_boost_cpus(struct device *dev,
+				struct device_attribute *bricked_hotplug_attrs,
+				const char *buf, size_t count)
+{
+	unsigned int input;
+	int ret;
+	ret = sscanf(buf, "%u", &input);
+	if ((ret != 1) || input > DEFAULT_MAX_CPUS_ONLINE)
+		return -EINVAL;
+
+	/* 0 or 1 disables it */
+	hotplug.input_boost_cpus = input;
+
+	return count;
+}
+
 static ssize_t store_bricked_enabled(struct device *dev,
 				struct device_attribute *bricked_hotplug_attrs,
 				const char *buf, size_t count)
@@ -662,6 +805,7 @@ static DEVICE_ATTR(min_cpus_online, 0644, show_min_cpus_online, store_min_cpus_o
 static DEVICE_ATTR(max_cpus_online, 0644, show_max_cpus_online, store_max_cpus_online);
 static DEVICE_ATTR(max_cpus_online_susp, 0644, show_max_cpus_online_susp, store_max_cpus_online_susp);
 static DEVICE_ATTR(enabled, 0644, show_bricked_enabled, store_bricked_enabled);
+static DEVICE_ATTR(input_boost_cpus, 0644, show_input_boost_cpus, store_input_boost_cpus);
 
 static struct attribute *bricked_hotplug_attrs[] = {
 	&dev_attr_startdelay.attr,
@@ -674,6 +818,7 @@ static struct attribute *bricked_hotplug_attrs[] = {
 	&dev_attr_max_cpus_online.attr,
 	&dev_attr_max_cpus_online_susp.attr,
 	&dev_attr_enabled.attr,
+	&dev_attr_input_boost_cpus.attr,
 	&dev_attr_twts_threshold_0.attr,
 	&dev_attr_twts_threshold_1.attr,
 	&dev_attr_twts_threshold_2.attr,
