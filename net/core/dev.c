@@ -2505,6 +2505,81 @@ EXPORT_SYMBOL(xmit_recursion);
  *      the BH enable code must have IRQs enabled so that it will not deadlock.
  *          --BLG
  */
+#ifdef CONFIG_NET_CLS_ACT
+static struct static_key egress_needed __read_mostly;
+
+void net_inc_egress_queue(void)
+{
+	static_key_slow_inc(&egress_needed);
+}
+EXPORT_SYMBOL_GPL(net_inc_egress_queue);
+
+void net_dec_egress_queue(void)
+{
+	static_key_slow_dec(&egress_needed);
+}
+EXPORT_SYMBOL_GPL(net_dec_egress_queue);
+
+/*
+ * Run the egress filters of the clsact qdisc. The filter chains are not
+ * RCU protected here, so they are walked under the lock of the qdisc
+ * just like ing_filter() does for ingress.
+ */
+static struct sk_buff *sch_handle_egress(struct sk_buff *skb, int *ret,
+					 struct net_device *dev)
+{
+	struct netdev_queue *rxq = rcu_dereference_bh(dev->ingress_queue);
+	struct tcf_result cl_res;
+	struct Qdisc *q;
+	int result = -1;
+
+	if (!rxq || !dev->egress_cl_list)
+		return skb;
+
+	q = rxq->qdisc;
+	if (q == &noop_qdisc)
+		return skb;
+
+	spin_lock(qdisc_lock(q));
+	if (likely(!test_bit(__QDISC_STATE_DEACTIVATED, &q->state)) &&
+	    dev->egress_cl_list) {
+		result = tc_classify(skb, dev->egress_cl_list, &cl_res);
+		qdisc_bstats_update(q, skb);
+		if (result == TC_ACT_SHOT)
+			q->qstats.drops++;
+	}
+	spin_unlock(qdisc_lock(q));
+
+	switch (result) {
+	case -1:
+		/* the chain went away, nothing was classified */
+		break;
+	case TC_ACT_OK:
+	case TC_ACT_RECLASSIFY:
+		skb->tc_index = TC_H_MIN(cl_res.classid);
+		break;
+	case TC_ACT_SHOT:
+		*ret = NET_XMIT_DROP;
+		kfree_skb(skb);
+		return NULL;
+	case TC_ACT_STOLEN:
+	case TC_ACT_QUEUED:
+		*ret = NET_XMIT_SUCCESS;
+		consume_skb(skb);
+		return NULL;
+	case TC_ACT_REDIRECT:
+		/* No need to push/pop skb's mac_header here on egress! */
+		skb_do_redirect(skb);
+		*ret = NET_XMIT_SUCCESS;
+		return NULL;
+	default:
+		break;
+	}
+
+	return skb;
+}
+#endif
+
 int dev_queue_xmit(struct sk_buff *skb)
 {
 	struct net_device *dev = skb->dev;
@@ -2519,12 +2594,18 @@ int dev_queue_xmit(struct sk_buff *skb)
 
 	skb_update_prio(skb);
 
+#ifdef CONFIG_NET_CLS_ACT
+	skb->tc_verd = SET_TC_AT(skb->tc_verd, AT_EGRESS);
+	if (static_key_false(&egress_needed)) {
+		skb = sch_handle_egress(skb, &rc, dev);
+		if (!skb)
+			goto out;
+	}
+#endif
+
 	txq = dev_pick_tx(dev, skb);
 	q = rcu_dereference_bh(txq->qdisc);
 
-#ifdef CONFIG_NET_CLS_ACT
-	skb->tc_verd = SET_TC_AT(skb->tc_verd, AT_EGRESS);
-#endif
 	trace_net_dev_queue(skb);
 	if (q->enqueue) {
 		rc = __dev_xmit_skb(skb, q, dev, txq);

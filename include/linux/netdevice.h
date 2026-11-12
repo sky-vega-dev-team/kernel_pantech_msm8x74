@@ -1187,6 +1187,10 @@ struct net_device {
 	void __rcu		*rx_handler_data;
 
 	struct netdev_queue __rcu *ingress_queue;
+#ifdef CONFIG_NET_CLS_ACT
+	/* egress filters of the clsact qdisc, protected by its qdisc lock */
+	struct tcf_proto	*egress_cl_list;
+#endif
 
 /*
  * Cache lines mostly used on transmit path
@@ -1607,6 +1611,10 @@ extern int		dev_open(struct net_device *dev);
 extern int		dev_close(struct net_device *dev);
 extern void		dev_disable_lro(struct net_device *dev);
 extern int		dev_queue_xmit(struct sk_buff *skb);
+#ifdef CONFIG_NET_CLS_ACT
+void net_inc_egress_queue(void);
+void net_dec_egress_queue(void);
+#endif
 extern int		register_netdevice(struct net_device *dev);
 extern void		unregister_netdevice_queue(struct net_device *dev,
 						   struct list_head *head);
