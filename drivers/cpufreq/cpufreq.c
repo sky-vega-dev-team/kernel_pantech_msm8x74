@@ -53,6 +53,20 @@ struct cpufreq_cpu_save_data {
 };
 static DEFINE_PER_CPU(struct cpufreq_cpu_save_data, cpufreq_policy_save);
 #endif
+
+/*
+ * The last state of the policy of an offline CPU, so that policyX keeps
+ * showing its CPUs and frequencies while the CPU is hotplugged out.
+ */
+struct cpufreq_offline_data {
+	struct cpumask related_cpus;
+	unsigned int cur;
+	bool valid;
+};
+static DEFINE_PER_CPU(struct cpufreq_offline_data, cpufreq_offline_data);
+/* cpufreq/policyX links, created once like the per cpu sysfs nodes */
+static bool cpufreq_policy_linked[NR_CPUS];
+
 static DEFINE_SPINLOCK(cpufreq_driver_lock);
 
 /*
@@ -706,6 +720,43 @@ EXPORT_SYMBOL(cpufreq_global_kobject);
 #define to_cpu_kobj(k) container_of(k, struct cpufreq_cpu_sysinfo, cpu_kobj)
 #define to_attr(a) container_of(a, struct freq_attr, attr)
 
+/*
+ * Show the attributes that describe the policy itself from the last state
+ * of an offline CPU, like an inactive policy upstream.
+ */
+static ssize_t show_offline(unsigned int cpu, struct attribute *attr,
+			    char *buf)
+{
+	struct cpufreq_offline_data *data = &per_cpu(cpufreq_offline_data, cpu);
+	struct cpufreq_frequency_table *table;
+	ssize_t count = 0;
+	unsigned int i;
+
+	if (!cpu_is_offline(cpu) || !data->valid)
+		return -EINVAL;
+
+	if (attr == &related_cpus.attr)
+		return show_cpus(&data->related_cpus, buf);
+
+	if (attr == &scaling_cur_freq.attr)
+		return sprintf(buf, "%u\n", data->cur);
+
+	if (!strcmp(attr->name, "scaling_available_frequencies")) {
+		table = cpufreq_frequency_get_table(cpu);
+		if (!table)
+			return -ENODEV;
+		for (i = 0; table[i].frequency != CPUFREQ_TABLE_END; i++) {
+			if (table[i].frequency == CPUFREQ_ENTRY_INVALID)
+				continue;
+			count += sprintf(&buf[count], "%d ", table[i].frequency);
+		}
+		count += sprintf(&buf[count], "\n");
+		return count;
+	}
+
+	return -EINVAL;
+}
+
 static ssize_t show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
 	struct cpufreq_cpu_sysinfo *freqobj;
@@ -734,6 +785,8 @@ static ssize_t show(struct kobject *kobj, struct attribute *attr, char *buf)
 fail:
 	cpufreq_cpu_put_sysfs(policy);
 no_policy:
+	if (ret == -EINVAL)
+		ret = show_offline(freqobj - cpu_sysnode, attr, buf);
 	return ret;
 }
 
@@ -1109,6 +1162,16 @@ static int cpufreq_add_dev(struct device *dev, struct subsys_interface *sif)
 	/* store per cpu policy for further accessing */
 	cpu_sysnode[cpu].cpu_policy = policy;
 
+	/* expose the policy as cpufreq/policyX like newer kernels do */
+	if (!cpufreq_policy_linked[cpu]) {
+		char name[16];
+
+		snprintf(name, sizeof(name), "policy%u", cpu);
+		if (!sysfs_create_link(cpufreq_global_kobject,
+				       &cpu_sysnode[cpu].cpu_kobj, name))
+			cpufreq_policy_linked[cpu] = true;
+	}
+
 	unlock_policy_rwsem_write(cpu);
 	module_put(cpufreq_driver->owner);
 	pr_debug("initialization complete\n");
@@ -1183,6 +1246,13 @@ static int __cpufreq_remove_dev(struct device *dev, struct subsys_interface *sif
 		return 0;
 	}
 #endif
+
+	/* same fallback as show_related_cpus() */
+	cpumask_copy(&per_cpu(cpufreq_offline_data, cpu).related_cpus,
+		     cpumask_empty(data->related_cpus) ? data->cpus :
+							 data->related_cpus);
+	per_cpu(cpufreq_offline_data, cpu).cur = data->cur;
+	per_cpu(cpufreq_offline_data, cpu).valid = true;
 
 #ifdef CONFIG_SMP
 
