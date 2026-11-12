@@ -73,6 +73,9 @@ static int ingress_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	case TC_ACT_QUEUED:
 		result = TC_ACT_STOLEN;
 		break;
+	case TC_ACT_REDIRECT:
+		/* handled by handle_ing() once the qdisc lock is dropped */
+		break;
 	case TC_ACT_RECLASSIFY:
 	case TC_ACT_OK:
 		skb->tc_index = TC_H_MIN(res.classid);
