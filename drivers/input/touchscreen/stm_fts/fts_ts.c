@@ -316,6 +316,77 @@ static void fts_set_flipcover_mode(struct fts_ts_info *info, bool enable)
 
 }
 
+/*
+ * Recovery of an IC that went through a reset on its own, e.g. when an aged
+ * battery makes the supply drop: it comes back with sensing and interrupts
+ * off, so the touchscreen stays dead. Power cycle it like the Samsung FTS
+ * drivers of later devices do (fts_reset_work), and since such an IC cannot
+ * raise an interrupt, check it periodically while the screen is on.
+ */
+#define FTS_ESD_CHECK_MS	2000
+#define FTS_ESD_I2C_RETRY	3
+
+static void fts_esd_schedule(struct fts_ts_info *info)
+{
+	schedule_delayed_work(&info->esd_work,
+			      msecs_to_jiffies(FTS_ESD_CHECK_MS));
+}
+
+static void fts_reset_work(struct work_struct *work)
+{
+	struct fts_ts_info *info = container_of(work, struct fts_ts_info,
+						reset_work.work);
+
+	if (info->touch_stopped)
+		return;
+
+	tsp_debug_info(true, &info->client->dev,
+		       "%s: power cycling the IC to recover it\n", __func__);
+
+	fts_stop_device(info);
+	msleep(100);	/* let the IC discharge */
+	fts_start_device(info);
+}
+
+static void fts_esd_work(struct work_struct *work)
+{
+	struct fts_ts_info *info = container_of(work, struct fts_ts_info,
+						esd_work.work);
+	unsigned char regAdd[3] = { 0xB6, 0x00, 0x1C };
+	unsigned char val[2] = { 0, 0 };
+	int rc;
+
+	if (info->touch_stopped || !info->reinit_done)
+		return;
+
+	/* the interrupt setting is lost when the IC resets */
+	rc = fts_read_reg(info, regAdd, 3, val, 2);
+
+	if (info->touch_stopped)
+		return;
+
+	if (rc != 2) {
+		if (++info->esd_i2c_fail < FTS_ESD_I2C_RETRY)
+			goto out;
+		tsp_debug_err(true, &info->client->dev,
+			      "%s: the IC does not answer (%d)\n", __func__, rc);
+	} else if (val[1] != INT_ENABLE) {
+		tsp_debug_err(true, &info->client->dev,
+			      "%s: the IC was reset (int %02X)\n", __func__,
+			      val[1]);
+	} else {
+		info->esd_i2c_fail = 0;
+		goto out;
+	}
+
+	info->esd_i2c_fail = 0;
+	schedule_delayed_work(&info->reset_work, 0);
+	return;
+
+out:
+	fts_esd_schedule(info);
+}
+
 
 int fts_wait_for_ready(struct fts_ts_info *info)
 {
@@ -1715,6 +1786,9 @@ static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 	mutex_init(&(info->device_mutex));
 	mutex_init(&info->i2c_mutex);
 
+	INIT_DELAYED_WORK(&info->reset_work, fts_reset_work);
+	INIT_DELAYED_WORK(&info->esd_work, fts_esd_work);
+
 	info->enabled = false;
 	mutex_lock(&info->lock);
 	retval = fts_init(info);
@@ -1858,6 +1932,9 @@ static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 	register_power_suspend(&fts_power_suspend);
 #endif
 
+	info->reinit_done = true;
+	fts_esd_schedule(info);
+
 	return 0;
 
 #ifdef TSP_FACTORY_TEST
@@ -1905,6 +1982,9 @@ static int fts_remove(struct i2c_client *client)
 #ifdef CONFIG_POWERSUSPEND
 	unregister_power_suspend(&fts_power_suspend);
 #endif
+
+	cancel_delayed_work_sync(&info->esd_work);
+	cancel_delayed_work_sync(&info->reset_work);
 
 	fts_interrupt_set(info, INT_DISABLE);
 	fts_command(info, FLUSHBUFFER);
@@ -2065,6 +2145,8 @@ static int fts_stop_device(struct fts_ts_info *info)
 {
 	tsp_debug_info(true, &info->client->dev, "%s\n", __func__);
 
+	cancel_delayed_work(&info->esd_work);
+
 	mutex_lock(&info->device_mutex);
 
 	if (info->touch_stopped) {
@@ -2123,6 +2205,9 @@ static int fts_start_device(struct fts_ts_info *info)
 	info->reinit_done = true;
 	
 	enable_irq(info->irq);
+
+	info->esd_i2c_fail = 0;
+	fts_esd_schedule(info);
 
  out:
 	mutex_unlock(&info->device_mutex);

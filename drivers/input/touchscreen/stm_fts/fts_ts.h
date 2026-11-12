@@ -286,6 +286,11 @@ struct fts_ts_info {
 	struct mutex device_mutex;
 	bool touch_stopped;
 	bool reinit_done;
+
+	/* recovery of an IC that reset on its own, e.g. on a supply drop */
+	struct delayed_work reset_work;
+	struct delayed_work esd_work;
+	int esd_i2c_fail;
 	int ito_test[2];
 
 #ifdef FTS_SUPPORT_TOUCH_KEY
