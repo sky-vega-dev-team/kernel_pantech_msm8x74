@@ -852,7 +852,7 @@ out:
 	return err;
 }
 
-static int f2fs_readdir(struct file *file, struct dir_context *ctx)
+static int f2fs_iterate_dir(struct file *file, struct dir_context *ctx)
 {
 	struct inode *inode = file_inode(file);
 	unsigned long npages = dir_blocks(inode);
@@ -925,6 +925,20 @@ out:
 	return err < 0 ? err : 0;
 }
 
+static int f2fs_readdir(struct file *file, void *dirent, filldir_t filldir)
+{
+	struct dir_context ctx = {
+		.actor = filldir,
+		.pos = file->f_pos,
+		.dirent = dirent,
+	};
+	int err;
+
+	err = f2fs_iterate_dir(file, &ctx);
+	file->f_pos = ctx.pos;
+	return err;
+}
+
 static int f2fs_dir_open(struct inode *inode, struct file *filp)
 {
 	if (f2fs_encrypted_inode(inode))
@@ -935,7 +949,7 @@ static int f2fs_dir_open(struct inode *inode, struct file *filp)
 const struct file_operations f2fs_dir_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= generic_read_dir,
-	.iterate	= f2fs_readdir,
+	.readdir	= f2fs_readdir,
 	.fsync		= f2fs_sync_file,
 	.open		= f2fs_dir_open,
 	.unlocked_ioctl	= f2fs_ioctl,

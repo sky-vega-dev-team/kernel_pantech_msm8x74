@@ -1078,8 +1078,8 @@ DECLARE_EVENT_CLASS(f2fs__bio,
 		__entry->op		= bio_op(bio);
 		__entry->op_flags	= bio->bi_rw;
 		__entry->type		= type;
-		__entry->sector		= bio->bi_iter.bi_sector;
-		__entry->size		= bio->bi_iter.bi_size;
+		__entry->sector		= bio->bi_sector;
+		__entry->size		= bio->bi_size;
 	),
 
 	TP_printk("dev = (%d,%d)/(%d,%d), rw = %s%s, %s, sector = %lld, size = %u",
@@ -1340,7 +1340,7 @@ TRACE_EVENT(f2fs_writepages,
 		__entry->tagged_writepages	= wbc->tagged_writepages;
 		__entry->for_reclaim	= wbc->for_reclaim;
 		__entry->range_cyclic	= wbc->range_cyclic;
-		__entry->for_sync	= wbc->for_sync;
+		__entry->for_sync	= 0;
 	),
 
 	TP_printk("dev = (%d,%d), ino = %lu, %s, %s, nr_to_write %ld, "

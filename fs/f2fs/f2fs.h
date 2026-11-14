@@ -24,7 +24,7 @@
 #include <linux/quotaops.h>
 #include <crypto/hash.h>
 #include <linux/writeback.h>
-#include <linux/overflow.h>
+#include "f2fs_compat.h"
 
 #define __FS_HAS_ENCRYPTION IS_ENABLED(CONFIG_F2FS_FS_ENCRYPTION)
 #include <linux/fscrypt.h>
@@ -129,7 +129,7 @@ struct f2fs_mount_info {
 #ifdef CONFIG_F2FS_FAULT_INJECTION
 	struct f2fs_fault_info fault_info;	/* For fault injection */
 #endif
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	/* Names of quota files with journalled quota */
 	char *s_qf_names[MAXQUOTAS];
 	int s_jquota_fmt;			/* Format of quota to use */
@@ -747,7 +747,7 @@ struct f2fs_inode_info {
 	nid_t i_xattr_nid;		/* node id that contains xattrs */
 	loff_t	last_disk_size;		/* lastly written file size */
 
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	struct dquot *i_dquot[MAXQUOTAS];
 
 	/* quota space reservation, managed internally by quota code */
@@ -1406,7 +1406,6 @@ struct f2fs_sb_info {
 	u64 kbytes_written;
 
 	/* Reference to checksum algorithm driver via cryptoapi */
-	struct crypto_shash *s_chksum_driver;
 
 	/* Precomputed FS UUID checksum for seeding other checksums */
 	__u32 s_chksum_seed;
@@ -1507,22 +1506,8 @@ static inline unsigned int f2fs_time_to_wait(struct f2fs_sb_info *sbi,
 static inline u32 __f2fs_crc32(struct f2fs_sb_info *sbi, u32 crc,
 			      const void *address, unsigned int length)
 {
-	struct {
-		struct shash_desc shash;
-		char ctx[4];
-	} desc;
-	int err;
-
-	BUG_ON(crypto_shash_descsize(sbi->s_chksum_driver) != sizeof(desc.ctx));
-
-	desc.shash.tfm = sbi->s_chksum_driver;
-	desc.shash.flags = 0;
-	*(u32 *)desc.ctx = crc;
-
-	err = crypto_shash_update(&desc.shash, address, length);
-	BUG_ON(err);
-
-	return *(u32 *)desc.ctx;
+	/* The crc32 of the crypto API of newer kernels is crc32_le() */
+	return crc32_le(crc, address, length);
 }
 
 static inline u32 f2fs_crc32(struct f2fs_sb_info *sbi, const void *address,
@@ -3281,8 +3266,9 @@ bool f2fs_should_update_inplace(struct inode *inode, struct f2fs_io_info *fio);
 bool f2fs_should_update_outplace(struct inode *inode, struct f2fs_io_info *fio);
 void f2fs_invalidate_page(struct page *page, unsigned int offset,
 			unsigned int length);
+void f2fs_invalidate_page_compat(struct page *page, unsigned long offset);
 int f2fs_release_page(struct page *page, gfp_t wait);
-#ifdef CONFIG_MIGRATION
+#ifdef CONFIG_F2FS_MIGRATION_COMPAT
 int f2fs_migrate_page(struct address_space *mapping, struct page *newpage,
 			struct page *page, enum migrate_mode mode);
 #endif
@@ -3795,7 +3781,7 @@ extern void f2fs_build_fault_attr(struct f2fs_sb_info *sbi, unsigned int rate,
 
 static inline bool is_journalled_quota(struct f2fs_sb_info *sbi)
 {
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	if (f2fs_sb_has_quota_ino(sbi))
 		return true;
 	if (F2FS_OPTION(sbi).s_qf_names[USRQUOTA] ||

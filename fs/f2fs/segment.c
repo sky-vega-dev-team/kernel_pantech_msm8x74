@@ -1021,12 +1021,12 @@ static void __remove_discard_cmd(struct f2fs_sb_info *sbi,
 	__detach_discard_cmd(dcc, dc);
 }
 
-static void f2fs_submit_discard_endio(struct bio *bio)
+static void f2fs_submit_discard_endio(struct bio *bio, int err)
 {
 	struct discard_cmd *dc = (struct discard_cmd *)bio->bi_private;
 	unsigned long flags;
 
-	dc->error = bio->bi_error;
+	dc->error = err;
 
 	spin_lock_irqsave(&dc->lock, flags);
 	dc->bio_ref--;
@@ -1098,11 +1098,11 @@ static int __blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 				return ret;
 		}
 		bio = bio_alloc(GFP_NOIO | __GFP_NOFAIL, 1);
-		bio->bi_iter.bi_sector = sector;
+		bio->bi_sector = sector;
 		bio->bi_bdev = bdev;
 		bio_set_op_attrs(bio, op, 0);
 
-		bio->bi_iter.bi_size = req_sects << 9;
+		bio->bi_size = req_sects << 9;
 		nr_sects -= req_sects;
 		sector = end_sect;
 

@@ -120,6 +120,8 @@ extern const struct xattr_handler f2fs_xattr_user_handler;
 extern const struct xattr_handler f2fs_xattr_trusted_handler;
 extern const struct xattr_handler f2fs_xattr_advise_handler;
 extern const struct xattr_handler f2fs_xattr_security_handler;
+extern const struct xattr_handler f2fs_xattr_acl_access_handler;
+extern const struct xattr_handler f2fs_xattr_acl_default_handler;
 
 extern const struct xattr_handler *f2fs_xattr_handlers[];
 

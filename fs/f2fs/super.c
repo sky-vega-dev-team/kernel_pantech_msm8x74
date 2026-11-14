@@ -74,10 +74,24 @@ void f2fs_build_fault_attr(struct f2fs_sb_info *sbi, unsigned int rate,
 }
 #endif
 
+/*
+ * The shrinker of 3.4 counts the objects when nr_to_scan is 0, and returns
+ * the objects left after scanning them otherwise.
+ */
+static int f2fs_shrink(struct shrinker *shrink, struct shrink_control *sc)
+{
+	unsigned long count;
+
+	if (sc->nr_to_scan)
+		f2fs_shrink_scan(shrink, sc);
+
+	count = f2fs_shrink_count(shrink, sc);
+	return min_t(unsigned long, count, INT_MAX);
+}
+
 /* f2fs-wide shrinker description */
 static struct shrinker f2fs_shrinker_info = {
-	.scan_objects = f2fs_shrink_scan,
-	.count_objects = f2fs_shrink_count,
+	.shrink = f2fs_shrink,
 	.seeks = DEFAULT_SEEKS,
 };
 
@@ -216,8 +230,8 @@ void f2fs_printk(struct f2fs_sb_info *sbi, const char *fmt, ...)
 	level = printk_get_level(fmt);
 	vaf.fmt = printk_skip_level(fmt);
 	vaf.va = &args;
-	printk("%c%cF2FS-fs (%s): %pV\n",
-	       KERN_SOH_ASCII, level, sbi->sb->s_id, &vaf);
+	printk("<%c>F2FS-fs (%s): %pV\n",
+	       level ? level : 'd', sbi->sb->s_id, &vaf);
 
 	va_end(args);
 }
@@ -253,7 +267,7 @@ static void init_once(void *foo)
 	inode_init_once(&fi->vfs_inode);
 }
 
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 static const char * const quotatypes[] = INITQFNAMES;
 #define QTYPE2NAME(t) (quotatypes[t])
 static int f2fs_set_qf_name(struct super_block *sb, int qtype,
@@ -364,7 +378,7 @@ static int parse_options(struct super_block *sb, char *options)
 	int arg = 0;
 	kuid_t uid;
 	kgid_t gid;
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	int ret;
 #endif
 
@@ -611,7 +625,7 @@ static int parse_options(struct super_block *sb, char *options)
 		case Opt_nolazytime:
 			sb->s_flags &= ~MS_LAZYTIME;
 			break;
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 		case Opt_quota:
 		case Opt_usrquota:
 			set_opt(sbi, USRQUOTA);
@@ -785,16 +799,16 @@ static int parse_options(struct super_block *sb, char *options)
 			return -EINVAL;
 		}
 	}
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	if (f2fs_check_quota_options(sbi))
 		return -EINVAL;
 #else
 	if (f2fs_sb_has_quota_ino(sbi) && !f2fs_readonly(sbi->sb)) {
-		f2fs_info(sbi, "Filesystem with quota feature cannot be mounted RDWR without CONFIG_QUOTA");
+		f2fs_info(sbi, "Filesystem with quota feature cannot be mounted RDWR without CONFIG_F2FS_QUOTA_COMPAT");
 		return -EINVAL;
 	}
 	if (f2fs_sb_has_project_quota(sbi) && !f2fs_readonly(sbi->sb)) {
-		f2fs_err(sbi, "Filesystem with project quota feature cannot be mounted RDWR without CONFIG_QUOTA");
+		f2fs_err(sbi, "Filesystem with project quota feature cannot be mounted RDWR without CONFIG_F2FS_QUOTA_COMPAT");
 		return -EINVAL;
 	}
 #endif
@@ -1081,14 +1095,12 @@ static void f2fs_put_super(struct super_block *sb)
 	f2fs_unregister_sysfs(sbi);
 
 	sb->s_fs_info = NULL;
-	if (sbi->s_chksum_driver)
-		crypto_free_shash(sbi->s_chksum_driver);
 	kvfree(sbi->raw_super);
 
 	destroy_device_list(sbi);
 	if (sbi->write_io_dummy)
 		mempool_destroy(sbi->write_io_dummy);
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	for (i = 0; i < MAXQUOTAS; i++)
 		kvfree(F2FS_OPTION(sbi).s_qf_names[i]);
 #endif
@@ -1147,7 +1159,7 @@ static int f2fs_unfreeze(struct super_block *sb)
 	return 0;
 }
 
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 static int f2fs_statfs_project(struct super_block *sb,
 				kprojid_t projid, struct kstatfs *buf)
 {
@@ -1236,7 +1248,7 @@ static int f2fs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_fsid.val[0] = (u32)id;
 	buf->f_fsid.val[1] = (u32)(id >> 32);
 
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	if (is_inode_flag_set(dentry->d_inode, FI_PROJ_INHERIT) &&
 			sb_has_quota_limits_enabled(sb, PRJQUOTA)) {
 		f2fs_statfs_project(sb, F2FS_I(dentry->d_inode)->i_projid, buf);
@@ -1248,7 +1260,7 @@ static int f2fs_statfs(struct dentry *dentry, struct kstatfs *buf)
 static inline void f2fs_show_quota_options(struct seq_file *seq,
 					   struct super_block *sb)
 {
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	struct f2fs_sb_info *sbi = F2FS_SB(sb);
 
 	if (F2FS_OPTION(sbi).s_jquota_fmt) {
@@ -1370,7 +1382,7 @@ static int f2fs_show_options(struct seq_file *seq, struct dentry *root)
 				F2FS_OPTION(sbi).fault_info.inject_type);
 	}
 #endif
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	if (test_opt(sbi, QUOTA))
 		seq_puts(seq, ",quota");
 	if (test_opt(sbi, USRQUOTA))
@@ -1445,7 +1457,7 @@ static void default_options(struct f2fs_sb_info *sbi)
 	f2fs_build_fault_attr(sbi, 0, 0);
 }
 
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 static int f2fs_enable_quotas(struct super_block *sb);
 #endif
 
@@ -1529,7 +1541,7 @@ static int f2fs_remount(struct super_block *sb, int *flags, char *data)
 	bool no_extent_cache = !test_opt(sbi, EXTENT_CACHE);
 	bool disable_checkpoint = test_opt(sbi, DISABLE_CHECKPOINT);
 	bool checkpoint_changed;
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	int i, j;
 #endif
 
@@ -1540,7 +1552,7 @@ static int f2fs_remount(struct super_block *sb, int *flags, char *data)
 	org_mount_opt = sbi->mount_opt;
 	old_sb_flags = sb->s_flags;
 
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	org_mount_opt.s_jquota_fmt = F2FS_OPTION(sbi).s_jquota_fmt;
 	for (i = 0; i < MAXQUOTAS; i++) {
 		if (F2FS_OPTION(sbi).s_qf_names[i]) {
@@ -1583,7 +1595,7 @@ static int f2fs_remount(struct super_block *sb, int *flags, char *data)
 	if (f2fs_readonly(sb) && (*flags & MS_RDONLY))
 		goto skip;
 
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	if (!f2fs_readonly(sb) && (*flags & MS_RDONLY)) {
 		err = dquot_suspend(sb, -1);
 		if (err < 0)
@@ -1664,7 +1676,7 @@ static int f2fs_remount(struct super_block *sb, int *flags, char *data)
 			goto restore_gc;
 	}
 skip:
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	/* Release old quota file names */
 	for (i = 0; i < MAXQUOTAS; i++)
 		kvfree(org_mount_opt.s_qf_names[i]);
@@ -1684,7 +1696,7 @@ restore_gc:
 		f2fs_stop_gc_thread(sbi);
 	}
 restore_opts:
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	F2FS_OPTION(sbi).s_jquota_fmt = org_mount_opt.s_jquota_fmt;
 	for (i = 0; i < MAXQUOTAS; i++) {
 		kvfree(F2FS_OPTION(sbi).s_qf_names[i]);
@@ -1696,7 +1708,7 @@ restore_opts:
 	return err;
 }
 
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 /* Read data from quotafile */
 static ssize_t f2fs_quota_read(struct super_block *sb, int type, char *data,
 			       size_t len, loff_t off)
@@ -2184,7 +2196,7 @@ static const struct super_operations f2fs_sops = {
 	.write_inode	= f2fs_write_inode,
 	.dirty_inode	= f2fs_dirty_inode,
 	.show_options	= f2fs_show_options,
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	.quota_read	= f2fs_quota_read,
 	.quota_write	= f2fs_quota_write,
 	.get_dquots	= f2fs_get_dquots,
@@ -2768,11 +2780,11 @@ static int init_percpu_info(struct f2fs_sb_info *sbi)
 {
 	int err;
 
-	err = percpu_counter_init(&sbi->alloc_valid_block_count, 0, GFP_KERNEL);
+	err = f2fs_percpu_counter_init(&sbi->alloc_valid_block_count, 0, GFP_KERNEL);
 	if (err)
 		return err;
 
-	err = percpu_counter_init(&sbi->total_valid_inode_count, 0,
+	err = f2fs_percpu_counter_init(&sbi->total_valid_inode_count, 0,
 								GFP_KERNEL);
 	if (err)
 		percpu_counter_destroy(&sbi->alloc_valid_block_count);
@@ -3085,15 +3097,6 @@ try_onemore:
 
 	sbi->sb = sb;
 
-	/* Load the checksum driver */
-	sbi->s_chksum_driver = crypto_alloc_shash("crc32", 0, 0);
-	if (IS_ERR(sbi->s_chksum_driver)) {
-		f2fs_err(sbi, "Cannot load crc32 driver.");
-		err = PTR_ERR(sbi->s_chksum_driver);
-		sbi->s_chksum_driver = NULL;
-		goto free_sbi;
-	}
-
 	/* set a block size */
 	if (unlikely(!sb_set_blocksize(sb, F2FS_BLKSIZE))) {
 		f2fs_err(sbi, "unable to set blocksize");
@@ -3142,7 +3145,7 @@ try_onemore:
 				le32_to_cpu(raw_super->log_blocksize);
 	sb->s_max_links = F2FS_LINK_MAX;
 
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	sb->dq_op = &f2fs_quota_operations;
 	sb->s_qcop = &f2fs_quotactl_ops;
 	sb->s_quota_types = QTYPE_MASK_USR | QTYPE_MASK_GRP | QTYPE_MASK_PRJ;
@@ -3166,7 +3169,6 @@ try_onemore:
 	sb->s_flags = (sb->s_flags & ~MS_POSIXACL) |
 		(test_opt(sbi, POSIX_ACL) ? MS_POSIXACL : 0);
 	memcpy(sb->s_uuid, raw_super->uuid, sizeof(raw_super->uuid));
-	sb->s_iflags |= SB_I_CGROUPWB;
 
 	/* init f2fs-specific super block info */
 	sbi->valid_super_block = valid_super_block;
@@ -3344,7 +3346,7 @@ try_onemore:
 	if (err)
 		goto free_root_inode;
 
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	/* Enable quota usage during mount */
 	if (f2fs_sb_has_quota_ino(sbi) && !f2fs_readonly(sb)) {
 		err = f2fs_enable_quotas(sb);
@@ -3448,7 +3450,7 @@ sync_free_meta:
 	retry_cnt = 0;
 
 free_meta:
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	f2fs_truncate_quota_inode_pages(sb);
 	if (f2fs_sb_has_quota_ino(sbi) && !f2fs_readonly(sb))
 		f2fs_quota_off_umount(sbi->sb);
@@ -3492,7 +3494,7 @@ free_bio_info:
 	for (i = 0; i < NR_PAGE_TYPE; i++)
 		kvfree(sbi->write_io[i]);
 free_options:
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	for (i = 0; i < MAXQUOTAS; i++)
 		kvfree(F2FS_OPTION(sbi).s_qf_names[i]);
 #endif
@@ -3500,8 +3502,6 @@ free_options:
 free_sb_buf:
 	kvfree(raw_super);
 free_sbi:
-	if (sbi->s_chksum_driver)
-		crypto_free_shash(sbi->s_chksum_driver);
 	kvfree(sbi);
 
 	/* give only one another chance */
@@ -3601,9 +3601,7 @@ static int __init init_f2fs_fs(void)
 	err = f2fs_init_sysfs();
 	if (err)
 		goto free_extent_cache;
-	err = register_shrinker(&f2fs_shrinker_info);
-	if (err)
-		goto free_sysfs;
+	register_shrinker(&f2fs_shrinker_info);
 	err = register_filesystem(&f2fs_fs_type);
 	if (err)
 		goto free_shrinker;

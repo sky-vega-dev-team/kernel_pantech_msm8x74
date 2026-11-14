@@ -449,9 +449,9 @@ const struct address_space_operations f2fs_meta_aops = {
 	.writepage	= f2fs_write_meta_page,
 	.writepages	= f2fs_write_meta_pages,
 	.set_page_dirty	= f2fs_set_meta_page_dirty,
-	.invalidatepage = f2fs_invalidate_page,
+	.invalidatepage = f2fs_invalidate_page_compat,
 	.releasepage	= f2fs_release_page,
-#ifdef CONFIG_MIGRATION
+#ifdef CONFIG_F2FS_MIGRATION_COMPAT
 	.migratepage    = f2fs_migrate_page,
 #endif
 };
@@ -668,7 +668,7 @@ int f2fs_recover_orphan_inodes(struct f2fs_sb_info *sbi)
 	block_t start_blk, orphan_blocks, i, j;
 	unsigned int s_flags = sbi->sb->s_flags;
 	int err = 0;
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	int quota_enabled;
 #endif
 
@@ -685,7 +685,7 @@ int f2fs_recover_orphan_inodes(struct f2fs_sb_info *sbi)
 		sbi->sb->s_flags &= ~MS_RDONLY;
 	}
 
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	/* Needed for iput() to work correctly and not trash data */
 	sbi->sb->s_flags |= MS_ACTIVE;
 
@@ -727,7 +727,7 @@ int f2fs_recover_orphan_inodes(struct f2fs_sb_info *sbi)
 out:
 	set_sbi_flag(sbi, SBI_IS_RECOVERED);
 
-#ifdef CONFIG_QUOTA
+#ifdef CONFIG_F2FS_QUOTA_COMPAT
 	/* Turn quotas off */
 	if (quota_enabled)
 		f2fs_quota_off_umount(sbi->sb);

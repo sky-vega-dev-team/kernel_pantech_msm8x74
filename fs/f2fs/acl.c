@@ -13,6 +13,7 @@
 #include "f2fs.h"
 #include "xattr.h"
 #include "acl.h"
+#include <linux/posix_acl_xattr.h>
 
 static inline size_t f2fs_acl_size(int count)
 {
@@ -84,16 +85,12 @@ static struct posix_acl *f2fs_acl_from_disk(const char *value, size_t size)
 			break;
 
 		case ACL_USER:
-			acl->a_entries[i].e_uid =
-				make_kuid(&init_user_ns,
-						le32_to_cpu(entry->e_id));
+			acl->a_entries[i].e_id = le32_to_cpu(entry->e_id);
 			entry = (struct f2fs_acl_entry *)((char *)entry +
 					sizeof(struct f2fs_acl_entry));
 			break;
 		case ACL_GROUP:
-			acl->a_entries[i].e_gid =
-				make_kgid(&init_user_ns,
-						le32_to_cpu(entry->e_id));
+			acl->a_entries[i].e_id = le32_to_cpu(entry->e_id);
 			entry = (struct f2fs_acl_entry *)((char *)entry +
 					sizeof(struct f2fs_acl_entry));
 			break;
@@ -132,16 +129,12 @@ static void *f2fs_acl_to_disk(struct f2fs_sb_info *sbi,
 
 		switch (acl->a_entries[i].e_tag) {
 		case ACL_USER:
-			entry->e_id = cpu_to_le32(
-					from_kuid(&init_user_ns,
-						acl->a_entries[i].e_uid));
+			entry->e_id = cpu_to_le32(acl->a_entries[i].e_id);
 			entry = (struct f2fs_acl_entry *)((char *)entry +
 					sizeof(struct f2fs_acl_entry));
 			break;
 		case ACL_GROUP:
-			entry->e_id = cpu_to_le32(
-					from_kgid(&init_user_ns,
-						acl->a_entries[i].e_gid));
+			entry->e_id = cpu_to_le32(acl->a_entries[i].e_id);
 			entry = (struct f2fs_acl_entry *)((char *)entry +
 					sizeof(struct f2fs_acl_entry));
 			break;
@@ -413,3 +406,125 @@ int f2fs_init_acl(struct inode *inode, struct inode *dir, struct page *ipage,
 
 	return error;
 }
+
+/*
+ * The VFS of 3.4 neither chmods the ACLs nor has the xattr handlers of the
+ * ACLs: do what posix_acl_chmod() and posix_acl_xattr_{get,set}() of 4.4 do.
+ */
+int f2fs_acl_chmod(struct inode *inode, umode_t mode)
+{
+	struct posix_acl *acl;
+	int ret;
+
+	if (!IS_POSIXACL(inode))
+		return 0;
+
+	acl = get_cached_acl(inode, ACL_TYPE_ACCESS);
+	if (acl == ACL_NOT_CACHED)
+		acl = f2fs_get_acl(inode, ACL_TYPE_ACCESS);
+	if (IS_ERR_OR_NULL(acl)) {
+		if (acl == ERR_PTR(-EOPNOTSUPP))
+			return 0;
+		return PTR_ERR(acl);
+	}
+
+	ret = posix_acl_chmod(&acl, GFP_KERNEL, mode);
+	if (ret)
+		return ret;
+	ret = f2fs_set_acl(inode, acl, ACL_TYPE_ACCESS);
+	posix_acl_release(acl);
+	return ret;
+}
+
+static size_t f2fs_xattr_list_acl(struct dentry *dentry, char *list,
+		size_t list_size, const char *name, size_t name_len, int type)
+{
+	const char *xname = POSIX_ACL_XATTR_DEFAULT;
+	size_t size;
+
+	if (!IS_POSIXACL(d_inode(dentry)))
+		return 0;
+
+	if (type == ACL_TYPE_ACCESS)
+		xname = POSIX_ACL_XATTR_ACCESS;
+
+	size = strlen(xname) + 1;
+	if (list && size <= list_size)
+		memcpy(list, xname, size);
+	return size;
+}
+
+static int f2fs_xattr_get_acl(struct dentry *dentry, const char *name,
+		void *buffer, size_t size, int type)
+{
+	struct inode *inode = d_inode(dentry);
+	struct posix_acl *acl;
+	int error;
+
+	if (strcmp(name, "") != 0)
+		return -EINVAL;
+	if (!IS_POSIXACL(inode))
+		return -EOPNOTSUPP;
+	if (S_ISLNK(inode->i_mode))
+		return -EOPNOTSUPP;
+
+	acl = get_cached_acl(inode, type);
+	if (acl == ACL_NOT_CACHED)
+		acl = f2fs_get_acl(inode, type);
+	if (IS_ERR(acl))
+		return PTR_ERR(acl);
+	if (!acl)
+		return -ENODATA;
+	error = posix_acl_to_xattr(acl, buffer, size);
+	posix_acl_release(acl);
+
+	return error;
+}
+
+static int f2fs_xattr_set_acl(struct dentry *dentry, const char *name,
+		const void *value, size_t size, int flags, int type)
+{
+	struct inode *inode = d_inode(dentry);
+	struct posix_acl *acl = NULL;
+	int error;
+
+	if (strcmp(name, "") != 0)
+		return -EINVAL;
+	if (!IS_POSIXACL(inode))
+		return -EOPNOTSUPP;
+	if (!inode_owner_or_capable(inode))
+		return -EPERM;
+
+	if (value) {
+		acl = posix_acl_from_xattr(value, size);
+		if (IS_ERR(acl))
+			return PTR_ERR(acl);
+		if (acl) {
+			error = posix_acl_valid(acl);
+			if (error)
+				goto release_and_out;
+		}
+	}
+
+	error = f2fs_set_acl(inode, acl, type);
+
+release_and_out:
+	posix_acl_release(acl);
+	return error;
+}
+
+const struct xattr_handler f2fs_xattr_acl_default_handler = {
+	.prefix = POSIX_ACL_XATTR_DEFAULT,
+	.flags	= ACL_TYPE_DEFAULT,
+	.list	= f2fs_xattr_list_acl,
+	.get	= f2fs_xattr_get_acl,
+	.set	= f2fs_xattr_set_acl,
+};
+
+const struct xattr_handler f2fs_xattr_acl_access_handler = {
+	.prefix = POSIX_ACL_XATTR_ACCESS,
+	.flags	= ACL_TYPE_ACCESS,
+	.list	= f2fs_xattr_list_acl,
+	.get	= f2fs_xattr_get_acl,
+	.set	= f2fs_xattr_set_acl,
+};

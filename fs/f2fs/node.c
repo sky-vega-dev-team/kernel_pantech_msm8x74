@@ -68,7 +68,7 @@ bool f2fs_available_free_memory(struct f2fs_sb_info *sbi, int type)
 		if (excess_cached_nats(sbi))
 			res = false;
 	} else if (type == DIRTY_DENTS) {
-		if (sbi->sb->s_bdi->wb.dirty_exceeded)
+		if (f2fs_bdi_dirty_exceeded(sbi->sb))
 			return false;
 		mem_size = get_pages(sbi, F2FS_DIRTY_DENTS);
 		res = mem_size < ((avail_ram * nm_i->ram_thresh / 100) >> 1);
@@ -91,7 +91,7 @@ bool f2fs_available_free_memory(struct f2fs_sb_info *sbi, int type)
 		mem_size = get_pages(sbi, F2FS_INMEM_PAGES);
 		res = mem_size < (val.totalram / 5);
 	} else {
-		if (!sbi->sb->s_bdi->wb.dirty_exceeded)
+		if (!f2fs_bdi_dirty_exceeded(sbi->sb))
 			return true;
 	}
 	return res;
@@ -1989,9 +1989,9 @@ const struct address_space_operations f2fs_node_aops = {
 	.writepage	= f2fs_write_node_page,
 	.writepages	= f2fs_write_node_pages,
 	.set_page_dirty	= f2fs_set_node_page_dirty,
-	.invalidatepage	= f2fs_invalidate_page,
+	.invalidatepage	= f2fs_invalidate_page_compat,
 	.releasepage	= f2fs_release_page,
-#ifdef CONFIG_MIGRATION
+#ifdef CONFIG_F2FS_MIGRATION_COMPAT
 	.migratepage    = f2fs_migrate_page,
 #endif
 };

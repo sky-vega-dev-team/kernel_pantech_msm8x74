@@ -544,15 +544,18 @@ fail:
 	return err;
 }
 
-static const char *f2fs_follow_link(struct dentry *dentry, void **cookie)
+static void *f2fs_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
-	const char *link = page_follow_link_light(dentry, cookie);
+	void *cookie = page_follow_link_light(dentry, nd);
+	char *link = nd_get_link(nd);
+
 	if (!IS_ERR(link) && !*link) {
 		/* this is broken symlink case */
-		page_put_link(NULL, *cookie);
-		link = ERR_PTR(-ENOENT);
+		page_put_link(dentry, nd, cookie);
+		nd_set_link(nd, ERR_PTR(-ENOENT));
+		return NULL;
 	}
-	return link;
+	return cookie;
 }
 
 static int f2fs_symlink(struct inode *dir, struct dentry *dentry,
@@ -1201,29 +1204,43 @@ static int f2fs_rename2(struct inode *old_dir, struct dentry *old_dentry,
 	return f2fs_rename(old_dir, old_dentry, new_dir, new_dentry, flags);
 }
 
-static const char *f2fs_encrypted_follow_link(struct dentry *dentry, void **cookie)
+/* The rename of 3.4 has no flags */
+static int f2fs_rename_noflags(struct inode *old_dir, struct dentry *old_dentry,
+			struct inode *new_dir, struct dentry *new_dentry)
+{
+	return f2fs_rename2(old_dir, old_dentry, new_dir, new_dentry, 0);
+}
+
+static void *f2fs_encrypted_follow_link(struct dentry *dentry,
+					struct nameidata *nd)
 {
 	struct inode *inode = d_inode(dentry);
 	struct page *page;
 	void *target;
 
-	if (!dentry)
-		return ERR_PTR(-ECHILD);
-
 	page = read_mapping_page(inode->i_mapping, 0, NULL);
-	if (IS_ERR(page))
-		return ERR_CAST(page);
+	if (IS_ERR(page)) {
+		nd_set_link(nd, ERR_CAST(page));
+		return NULL;
+	}
 
-	target = fscrypt_get_symlink(inode, page_address(page),
+	target = (void *)fscrypt_get_symlink(inode, page_address(page),
 				     inode->i_sb->s_blocksize);
 	put_page(page);
-	return *cookie = target;
+	nd_set_link(nd, target);
+	return IS_ERR(target) ? NULL : target;
+}
+
+static void f2fs_encrypted_put_link(struct dentry *dentry,
+				struct nameidata *nd, void *cookie)
+{
+	kfree(cookie);
 }
 
 const struct inode_operations f2fs_encrypted_symlink_inode_operations = {
 	.readlink       = generic_readlink,
 	.follow_link	= f2fs_encrypted_follow_link,
-	.put_link	= kfree_put_link,
+	.put_link	= f2fs_encrypted_put_link,
 	.getattr	= f2fs_getattr,
 	.setattr	= f2fs_setattr,
 #ifdef CONFIG_F2FS_FS_XATTR
@@ -1243,12 +1260,11 @@ const struct inode_operations f2fs_dir_inode_operations = {
 	.mkdir		= f2fs_mkdir,
 	.rmdir		= f2fs_rmdir,
 	.mknod		= f2fs_mknod,
-	.rename2	= f2fs_rename2,
+	.rename		= f2fs_rename_noflags,
 	.tmpfile	= f2fs_tmpfile,
 	.getattr	= f2fs_getattr,
 	.setattr	= f2fs_setattr,
 	.get_acl	= f2fs_get_acl,
-	.set_acl	= f2fs_set_acl,
 #ifdef CONFIG_F2FS_FS_XATTR
 	.setxattr	= generic_setxattr,
 	.getxattr	= generic_getxattr,
@@ -1275,7 +1291,6 @@ const struct inode_operations f2fs_special_inode_operations = {
 	.getattr	= f2fs_getattr,
 	.setattr        = f2fs_setattr,
 	.get_acl	= f2fs_get_acl,
-	.set_acl	= f2fs_set_acl,
 #ifdef CONFIG_F2FS_FS_XATTR
 	.setxattr       = generic_setxattr,
 	.getxattr       = generic_getxattr,
