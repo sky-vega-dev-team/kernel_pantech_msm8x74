@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * fs/f2fs/acl.c
  *
@@ -7,10 +8,6 @@
  * Portions of this code from linux/fs/ext2/acl.c
  *
  * Copyright (C) 2001-2003 Andreas Gruenbacher, <agruen@suse.de>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #include <linux/f2fs_fs.h>
 #include "f2fs.h"
@@ -53,6 +50,9 @@ static struct posix_acl *f2fs_acl_from_disk(const char *value, size_t size)
 	struct f2fs_acl_entry *entry = (struct f2fs_acl_entry *)(hdr + 1);
 	const char *end = value + size;
 
+	if (size < sizeof(struct f2fs_acl_header))
+		return ERR_PTR(-EINVAL);
+
 	if (hdr->a_version != cpu_to_le32(F2FS_ACL_VERSION))
 		return ERR_PTR(-EINVAL);
 
@@ -84,8 +84,16 @@ static struct posix_acl *f2fs_acl_from_disk(const char *value, size_t size)
 			break;
 
 		case ACL_USER:
+			acl->a_entries[i].e_uid =
+				make_kuid(&init_user_ns,
+						le32_to_cpu(entry->e_id));
+			entry = (struct f2fs_acl_entry *)((char *)entry +
+					sizeof(struct f2fs_acl_entry));
+			break;
 		case ACL_GROUP:
-			acl->a_entries[i].e_id = le32_to_cpu(entry->e_id);
+			acl->a_entries[i].e_gid =
+				make_kgid(&init_user_ns,
+						le32_to_cpu(entry->e_id));
 			entry = (struct f2fs_acl_entry *)((char *)entry +
 					sizeof(struct f2fs_acl_entry));
 			break;
@@ -101,14 +109,16 @@ fail:
 	return ERR_PTR(-EINVAL);
 }
 
-static void *f2fs_acl_to_disk(const struct posix_acl *acl, size_t *size)
+static void *f2fs_acl_to_disk(struct f2fs_sb_info *sbi,
+				const struct posix_acl *acl, size_t *size)
 {
 	struct f2fs_acl_header *f2fs_acl;
 	struct f2fs_acl_entry *entry;
 	int i;
 
-	f2fs_acl = f2fs_kmalloc(sizeof(struct f2fs_acl_header) + acl->a_count *
-			sizeof(struct f2fs_acl_entry), GFP_NOFS);
+	f2fs_acl = f2fs_kmalloc(sbi, sizeof(struct f2fs_acl_header) +
+			acl->a_count * sizeof(struct f2fs_acl_entry),
+			GFP_NOFS);
 	if (!f2fs_acl)
 		return ERR_PTR(-ENOMEM);
 
@@ -122,8 +132,16 @@ static void *f2fs_acl_to_disk(const struct posix_acl *acl, size_t *size)
 
 		switch (acl->a_entries[i].e_tag) {
 		case ACL_USER:
+			entry->e_id = cpu_to_le32(
+					from_kuid(&init_user_ns,
+						acl->a_entries[i].e_uid));
+			entry = (struct f2fs_acl_entry *)((char *)entry +
+					sizeof(struct f2fs_acl_entry));
+			break;
 		case ACL_GROUP:
-			entry->e_id = cpu_to_le32(acl->a_entries[i].e_id);
+			entry->e_id = cpu_to_le32(
+					from_kgid(&init_user_ns,
+						acl->a_entries[i].e_gid));
 			entry = (struct f2fs_acl_entry *)((char *)entry +
 					sizeof(struct f2fs_acl_entry));
 			break;
@@ -142,32 +160,24 @@ static void *f2fs_acl_to_disk(const struct posix_acl *acl, size_t *size)
 	return (void *)f2fs_acl;
 
 fail:
-	kfree(f2fs_acl);
+	kvfree(f2fs_acl);
 	return ERR_PTR(-EINVAL);
 }
 
 static struct posix_acl *__f2fs_get_acl(struct inode *inode, int type,
 						struct page *dpage)
 {
-	struct f2fs_sb_info *sbi = F2FS_SB(inode->i_sb);
 	int name_index = F2FS_XATTR_INDEX_POSIX_ACL_DEFAULT;
 	void *value = NULL;
 	struct posix_acl *acl;
 	int retval;
-
-	if (!test_opt(sbi, POSIX_ACL))
-		return NULL;
-
-	acl = get_cached_acl(inode, type);
-	if (acl != ACL_NOT_CACHED)
-		return acl;
 
 	if (type == ACL_TYPE_ACCESS)
 		name_index = F2FS_XATTR_INDEX_POSIX_ACL_ACCESS;
 
 	retval = f2fs_getxattr(inode, name_index, "", NULL, 0, dpage);
 	if (retval > 0) {
-		value = f2fs_kmalloc(retval, GFP_F2FS_ZERO);
+		value = f2fs_kmalloc(F2FS_I_SB(inode), retval, GFP_F2FS_ZERO);
 		if (!value)
 			return ERR_PTR(-ENOMEM);
 		retval = f2fs_getxattr(inode, name_index, "", value,
@@ -180,7 +190,7 @@ static struct posix_acl *__f2fs_get_acl(struct inode *inode, int type,
 		acl = NULL;
 	else
 		acl = ERR_PTR(retval);
-	kfree(value);
+	kvfree(value);
 
 	if (!IS_ERR(acl))
 		set_cached_acl(inode, type, acl);
@@ -193,30 +203,23 @@ struct posix_acl *f2fs_get_acl(struct inode *inode, int type)
 	return __f2fs_get_acl(inode, type, NULL);
 }
 
-static int f2fs_set_acl(struct inode *inode, int type,
+static int __f2fs_set_acl(struct inode *inode, int type,
 			struct posix_acl *acl, struct page *ipage)
 {
-	struct f2fs_sb_info *sbi = F2FS_SB(inode->i_sb);
 	int name_index;
 	void *value = NULL;
 	size_t size = 0;
 	int error;
-
-	if (!test_opt(sbi, POSIX_ACL))
-		return 0;
-	if (S_ISLNK(inode->i_mode))
-		return -EOPNOTSUPP;
+	umode_t mode = inode->i_mode;
 
 	switch (type) {
 	case ACL_TYPE_ACCESS:
 		name_index = F2FS_XATTR_INDEX_POSIX_ACL_ACCESS;
-		if (acl) {
-			error = posix_acl_equiv_mode(acl, &inode->i_mode);
-			if (error < 0)
+		if (acl && !ipage) {
+			error = posix_acl_update_mode(inode, &mode, &acl);
+			if (error)
 				return error;
-			set_acl_inode(inode, inode->i_mode);
-			if (error == 0)
-				acl = NULL;
+			set_acl_inode(inode, mode);
 		}
 		break;
 
@@ -230,19 +233,17 @@ static int f2fs_set_acl(struct inode *inode, int type,
 		return -EINVAL;
 	}
 
-	f2fs_mark_inode_dirty_sync(inode);
-
 	if (acl) {
-		value = f2fs_acl_to_disk(acl, &size);
+		value = f2fs_acl_to_disk(F2FS_I_SB(inode), acl, &size);
 		if (IS_ERR(value)) {
 			clear_inode_flag(inode, FI_ACL_MODE);
-			return (int)PTR_ERR(value);
+			return PTR_ERR(value);
 		}
 	}
 
 	error = f2fs_setxattr(inode, name_index, "", value, size, ipage, 0);
 
-	kfree(value);
+	kvfree(value);
 	if (!error)
 		set_cached_acl(inode, type, acl);
 
@@ -250,157 +251,165 @@ static int f2fs_set_acl(struct inode *inode, int type,
 	return error;
 }
 
+int f2fs_set_acl(struct inode *inode, struct posix_acl *acl, int type)
+{
+	if (unlikely(f2fs_cp_error(F2FS_I_SB(inode))))
+		return -EIO;
+
+	return __f2fs_set_acl(inode, type, acl, NULL);
+}
+
+/*
+ * Most part of f2fs_acl_clone, f2fs_acl_create_masq, f2fs_acl_create
+ * are copied from posix_acl.c
+ */
+static struct posix_acl *f2fs_acl_clone(const struct posix_acl *acl,
+							gfp_t flags)
+{
+	struct posix_acl *clone = NULL;
+
+	if (acl) {
+		int size = sizeof(struct posix_acl) + acl->a_count *
+				sizeof(struct posix_acl_entry);
+		clone = kmemdup(acl, size, flags);
+		if (clone)
+			atomic_set(&clone->a_refcount, 1);
+	}
+	return clone;
+}
+
+static int f2fs_acl_create_masq(struct posix_acl *acl, umode_t *mode_p)
+{
+	struct posix_acl_entry *pa, *pe;
+	struct posix_acl_entry *group_obj = NULL, *mask_obj = NULL;
+	umode_t mode = *mode_p;
+	int not_equiv = 0;
+
+	/* assert(atomic_read(acl->a_refcount) == 1); */
+
+	FOREACH_ACL_ENTRY(pa, acl, pe) {
+		switch (pa->e_tag) {
+		case ACL_USER_OBJ:
+			pa->e_perm &= (mode >> 6) | ~S_IRWXO;
+			mode &= (pa->e_perm << 6) | ~S_IRWXU;
+			break;
+
+		case ACL_USER:
+		case ACL_GROUP:
+			not_equiv = 1;
+			break;
+
+		case ACL_GROUP_OBJ:
+			group_obj = pa;
+			break;
+
+		case ACL_OTHER:
+			pa->e_perm &= mode | ~S_IRWXO;
+			mode &= pa->e_perm | ~S_IRWXO;
+			break;
+
+		case ACL_MASK:
+			mask_obj = pa;
+			not_equiv = 1;
+			break;
+
+		default:
+			return -EIO;
+		}
+	}
+
+	if (mask_obj) {
+		mask_obj->e_perm &= (mode >> 3) | ~S_IRWXO;
+		mode &= (mask_obj->e_perm << 3) | ~S_IRWXG;
+	} else {
+		if (!group_obj)
+			return -EIO;
+		group_obj->e_perm &= (mode >> 3) | ~S_IRWXO;
+		mode &= (group_obj->e_perm << 3) | ~S_IRWXG;
+	}
+
+	*mode_p = (*mode_p & ~S_IRWXUGO) | mode;
+	return not_equiv;
+}
+
+static int f2fs_acl_create(struct inode *dir, umode_t *mode,
+		struct posix_acl **default_acl, struct posix_acl **acl,
+		struct page *dpage)
+{
+	struct posix_acl *p;
+	struct posix_acl *clone;
+	int ret;
+
+	*acl = NULL;
+	*default_acl = NULL;
+
+	if (S_ISLNK(*mode) || !IS_POSIXACL(dir))
+		return 0;
+
+	p = __f2fs_get_acl(dir, ACL_TYPE_DEFAULT, dpage);
+	if (!p || p == ERR_PTR(-EOPNOTSUPP)) {
+		*mode &= ~current_umask();
+		return 0;
+	}
+	if (IS_ERR(p))
+		return PTR_ERR(p);
+
+	clone = f2fs_acl_clone(p, GFP_NOFS);
+	if (!clone) {
+		ret = -ENOMEM;
+		goto release_acl;
+	}
+
+	ret = f2fs_acl_create_masq(clone, mode);
+	if (ret < 0)
+		goto release_clone;
+
+	if (ret == 0)
+		posix_acl_release(clone);
+	else
+		*acl = clone;
+
+	if (!S_ISDIR(*mode))
+		posix_acl_release(p);
+	else
+		*default_acl = p;
+
+	return 0;
+
+release_clone:
+	posix_acl_release(clone);
+release_acl:
+	posix_acl_release(p);
+	return ret;
+}
+
 int f2fs_init_acl(struct inode *inode, struct inode *dir, struct page *ipage,
 							struct page *dpage)
 {
-	struct f2fs_sb_info *sbi = F2FS_SB(dir->i_sb);
-	struct posix_acl *acl = NULL;
+	struct posix_acl *default_acl = NULL, *acl = NULL;
 	int error = 0;
 
-	if (!S_ISLNK(inode->i_mode)) {
-		if (test_opt(sbi, POSIX_ACL)) {
-			acl = __f2fs_get_acl(dir, ACL_TYPE_DEFAULT, dpage);
-			if (IS_ERR(acl))
-				return PTR_ERR(acl);
-		}
-		if (!acl)
-			inode->i_mode &= ~current_umask();
-	}
-
-	if (!test_opt(sbi, POSIX_ACL) || !acl)
-		goto cleanup;
-
-	if (S_ISDIR(inode->i_mode)) {
-		error = f2fs_set_acl(inode, ACL_TYPE_DEFAULT, acl, ipage);
-		if (error)
-			goto cleanup;
-	}
-	error = posix_acl_create(&acl, GFP_KERNEL, &inode->i_mode);
-	if (error < 0)
-		return error;
-	if (error > 0)
-		error = f2fs_set_acl(inode, ACL_TYPE_ACCESS, acl, ipage);
-
-	f2fs_mark_inode_dirty_sync(inode);
-cleanup:
-	posix_acl_release(acl);
-	return error;
-}
-
-int f2fs_acl_chmod(struct inode *inode)
-{
-	struct f2fs_sb_info *sbi = F2FS_SB(inode->i_sb);
-	struct posix_acl *acl;
-	int error;
-	umode_t mode = get_inode_mode(inode);
-
-	if (!test_opt(sbi, POSIX_ACL))
-		return 0;
-	if (S_ISLNK(mode))
-		return -EOPNOTSUPP;
-
-	acl = f2fs_get_acl(inode, ACL_TYPE_ACCESS);
-	if (IS_ERR(acl) || !acl)
-		return PTR_ERR(acl);
-
-	error = posix_acl_chmod(&acl, GFP_KERNEL, mode);
+	error = f2fs_acl_create(dir, &inode->i_mode, &default_acl, &acl, dpage);
 	if (error)
 		return error;
 
-	error = f2fs_set_acl(inode, ACL_TYPE_ACCESS, acl, NULL);
-	posix_acl_release(acl);
-	return error;
-}
+	f2fs_mark_inode_dirty_sync(inode, true);
 
-static size_t f2fs_xattr_list_acl(struct dentry *dentry, char *list,
-		size_t list_size, const char *name, size_t name_len, int type)
-{
-	struct f2fs_sb_info *sbi = F2FS_SB(dentry->d_sb);
-	const char *xname = POSIX_ACL_XATTR_DEFAULT;
-	size_t size;
-
-	if (!test_opt(sbi, POSIX_ACL))
-		return 0;
-
-	if (type == ACL_TYPE_ACCESS)
-		xname = POSIX_ACL_XATTR_ACCESS;
-
-	size = strlen(xname) + 1;
-	if (list && size <= list_size)
-		memcpy(list, xname, size);
-	return size;
-}
-
-static int f2fs_xattr_get_acl(struct dentry *dentry, const char *name,
-		void *buffer, size_t size, int type)
-{
-	struct f2fs_sb_info *sbi = F2FS_SB(dentry->d_sb);
-	struct posix_acl *acl;
-	int error;
-
-	if (strcmp(name, "") != 0)
-		return -EINVAL;
-	if (!test_opt(sbi, POSIX_ACL))
-		return -EOPNOTSUPP;
-
-	acl = f2fs_get_acl(d_inode(dentry), type);
-	if (IS_ERR(acl))
-		return PTR_ERR(acl);
-	if (!acl)
-		return -ENODATA;
-	error = posix_acl_to_xattr(acl, buffer, size);
-	posix_acl_release(acl);
-
-	return error;
-}
-
-static int f2fs_xattr_set_acl(struct dentry *dentry, const char *name,
-		const void *value, size_t size, int flags, int type)
-{
-	struct f2fs_sb_info *sbi = F2FS_SB(dentry->d_sb);
-	struct inode *inode = d_inode(dentry);
-	struct posix_acl *acl = NULL;
-	int error;
-
-	if (strcmp(name, "") != 0)
-		return -EINVAL;
-	if (!test_opt(sbi, POSIX_ACL))
-		return -EOPNOTSUPP;
-	if (!inode_owner_or_capable(inode))
-		return -EPERM;
-
-	if (value) {
-		acl = posix_acl_from_xattr(value, size);
-		if (IS_ERR(acl))
-			return PTR_ERR(acl);
-		if (acl) {
-			error = posix_acl_valid(acl);
-			if (error)
-				goto release_and_out;
-		}
+	if (default_acl) {
+		error = __f2fs_set_acl(inode, ACL_TYPE_DEFAULT, default_acl,
+				       ipage);
+		posix_acl_release(default_acl);
 	} else {
-		acl = NULL;
+		inode->i_default_acl = NULL;
+	}
+	if (acl) {
+		if (!error)
+			error = __f2fs_set_acl(inode, ACL_TYPE_ACCESS, acl,
+					       ipage);
+		posix_acl_release(acl);
+	} else {
+		inode->i_acl = NULL;
 	}
 
-	error = f2fs_set_acl(inode, type, acl, NULL);
-
-release_and_out:
-	posix_acl_release(acl);
 	return error;
 }
-
-const struct xattr_handler f2fs_xattr_acl_default_handler = {
-	.prefix = POSIX_ACL_XATTR_DEFAULT,
-	.flags = ACL_TYPE_DEFAULT,
-	.list = f2fs_xattr_list_acl,
-	.get = f2fs_xattr_get_acl,
-	.set = f2fs_xattr_set_acl,
-};
-
-const struct xattr_handler f2fs_xattr_acl_access_handler = {
-	.prefix = POSIX_ACL_XATTR_ACCESS,
-	.flags = ACL_TYPE_ACCESS,
-	.list = f2fs_xattr_list_acl,
-	.get = f2fs_xattr_get_acl,
-	.set = f2fs_xattr_set_acl,
-};
