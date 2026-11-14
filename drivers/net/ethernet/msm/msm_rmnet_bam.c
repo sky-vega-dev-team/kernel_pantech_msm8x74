@@ -269,6 +269,7 @@ static void bam_recv_notify(void *dev, struct sk_buff *skb)
 
 		if (RMNET_IS_MODE_IP(opmode)) {
 			/* Driver in IP mode */
+			skb_reset_mac_header(skb);
 			skb->protocol = rmnet_ip_type_trans(skb, dev);
 		} else {
 			/* Driver in Ethernet mode */
