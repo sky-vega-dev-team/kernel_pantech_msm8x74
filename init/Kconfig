@@ -1180,6 +1180,17 @@ config BPF_SYSCALL
 	  Enable the bpf() system call that allows to manipulate eBPF
 	  programs and maps via file descriptors.
 
+config BPF_LOADER_KVER_4_14
+	bool "Report kernel 4.14 to the Android bpfloader"
+	depends on BPF_SYSCALL
+	default y
+	help
+	  The Android bpfloader picks the programs of its objects by the
+	  kernel version uname reports, and skips the ones written for 4.14
+	  (tethering offload, socket create filter) on older kernels. Report
+	  4.14.0 to the processes named bpfloader, for kernels that carry the
+	  eBPF features those programs need.
+
 config BPF_JIT_ALWAYS_ON
 	bool "Permanently enable BPF JIT and remove BPF interpreter"
 	depends on BPF_SYSCALL && HAVE_EBPF_JIT && BPF_JIT

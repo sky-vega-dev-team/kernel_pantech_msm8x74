@@ -1309,6 +1309,32 @@ static int override_release(char __user *release, size_t len)
 		copy = scnprintf(buf, copy, "2.6.%u%s", v, rest);
 		ret = copy_to_user(release, buf, copy + 1);
 	}
+#ifdef CONFIG_BPF_LOADER_KVER_4_14
+	/*
+	 * The Android bpfloader only loads the programs of an object tagged for
+	 * the kernel version uname reports. This kernel carries what the 4.14
+	 * ones need (cgroup sock, skb_change_head, redirect, clsact...), so
+	 * report 4.14 to the loader to get them instead of the stubs.
+	 */
+	else if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0) &&
+		 !strcmp(current->comm, "bpfloader")) {
+		const char *rest = UTS_RELEASE;
+		char buf[65] = { 0 };
+		int ndots = 0;
+		size_t copy;
+
+		while (*rest) {
+			if (*rest == '.' && ++ndots >= 3)
+				break;
+			if (!isdigit(*rest) && *rest != '.')
+				break;
+			rest++;
+		}
+		copy = clamp_t(size_t, len, 1, sizeof(buf));
+		copy = scnprintf(buf, copy, "4.14.0%s", rest);
+		ret = copy_to_user(release, buf, copy + 1);
+	}
+#endif
 	return ret;
 }
 
