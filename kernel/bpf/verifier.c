@@ -2287,23 +2287,20 @@ static int check_cond_jmp_op(struct bpf_verifier_env *env,
 
 	dst_reg = &regs[insn->dst_reg];
 
-	/* detect if R == 0 where R was initialized to zero earlier */
+	/* A known constant compared to an immediate: only one branch can be
+	 * taken, do not walk the other one with a contradicting state (e.g. a
+	 * pointer set to NULL on the path that cannot be taken).
+	 */
 	if (BPF_SRC(insn->code) == BPF_K &&
 	    (opcode == BPF_JEQ || opcode == BPF_JNE) &&
-	    dst_reg->type == CONST_IMM && dst_reg->imm == insn->imm) {
-		if (opcode == BPF_JEQ) {
-			/* if (imm == imm) goto pc+off;
-			 * only follow the goto, ignore fall-through
-			 */
+	    dst_reg->type == CONST_IMM) {
+		bool taken = (dst_reg->imm == insn->imm) == (opcode == BPF_JEQ);
+
+		if (taken)
+			/* only follow the goto, ignore fall-through */
 			*insn_idx += insn->off;
-			return 0;
-		} else {
-			/* if (imm != imm) goto pc+off;
-			 * only follow fall-through branch, since
-			 * that's where the program will go
-			 */
-			return 0;
-		}
+		/* else only follow the fall-through branch */
+		return 0;
 	}
 
 	other_branch = push_stack(env, *insn_idx + insn->off + 1, *insn_idx);
