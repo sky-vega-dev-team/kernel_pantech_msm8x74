@@ -182,7 +182,9 @@ void sdfat_time_fat2unix(struct sdfat_sb_info *sbi, struct timespec *ts,
 			+ (year * 365 + ld + accum_days_in_year[tp->Month]
 			+ (tp->Day - 1) + DAYS_DELTA_DECADE) * SECS_PER_DAY;
 
-	if (!sbi->options.tz_utc)
+	if (sbi->options.tz_set)
+		ts->tv_sec -= sbi->options.time_offset * SECS_PER_MIN;
+	else if (!sbi->options.tz_utc)
 		ts->tv_sec += sys_tz.tz_minuteswest * SECS_PER_MIN;
 
 	ts->tv_nsec = 0;
@@ -196,7 +198,9 @@ void sdfat_time_unix2fat(struct sdfat_sb_info *sbi, struct timespec *ts,
 	time_t day, month, year;
 	time_t ld; /* leap day */
 
-	if (!sbi->options.tz_utc)
+	if (sbi->options.tz_set)
+		second += sbi->options.time_offset * SECS_PER_MIN;
+	else if (!sbi->options.tz_utc)
 		second -= sys_tz.tz_minuteswest * SECS_PER_MIN;
 
 	/* Jan 1 GMT 00:00:00 1980. But what about another time zone? */
