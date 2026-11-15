@@ -183,7 +183,11 @@ static inline void f2fs_nq_free_block(struct inode *inode, qsize_t nr)
 /* The rename of 3.4 has no flags: f2fs never sees these */
 #ifndef RENAME_NOREPLACE
 #define RENAME_NOREPLACE	(1 << 0)	/* Don't overwrite target */
+#endif
+#ifndef RENAME_EXCHANGE
 #define RENAME_EXCHANGE		(1 << 1)	/* Exchange source and dest */
+#endif
+#ifndef RENAME_WHITEOUT
 #define RENAME_WHITEOUT		(1 << 2)	/* Whiteout source */
 #endif
 #ifndef WHITEOUT_DEV
