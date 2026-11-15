@@ -102,3 +102,16 @@ config F2FS_FAULT_INJECTION
 	  Test F2FS to inject faults such as ENOMEM, ENOSPC, and so on.
 
 	  If unsure, say N.
+
+config F2FS_QUOTA_COMPAT
+	bool "F2FS quota on the quota of 3.4"
+	depends on F2FS_FS && QUOTA
+	select QUOTA_TREE
+	select QFMT_V2
+	help
+	  Account the user and group quotas of f2fs in its hidden quota inodes,
+	  so that the filesystems formatted with the quota feature, as TWRP
+	  does, can be mounted read-write. The quota of 3.4 has no project
+	  quota: its file is kept but not accounted.
+
+	  If unsure, say Y.

@@ -178,6 +178,19 @@ static inline void f2fs_nq_free_block(struct inode *inode, qsize_t nr)
 	mark_inode_dirty_sync(inode);
 }
 #define dquot_free_block(inode, nr)	f2fs_nq_free_block(inode, nr)
+#else
+/*
+ * The quota of 3.4: dquot_initialize() returns nothing, the dirty dquots
+ * are written by dquot_quota_sync() without wait, which does not sync the
+ * filesystem then, and there is no project quota. PRJQUOTA only indexes
+ * the f2fs arrays sized F2FS_MAX_QUOTAS: the loops over MAXQUOTAS of 3.4
+ * leave the project quota alone.
+ */
+#define dquot_initialize(inode)	({ dquot_initialize(inode); 0; })
+#define dquot_writeback_dquots(sb, type)	dquot_quota_sync(sb, type, 0)
+#ifndef PRJQUOTA
+#define PRJQUOTA	2
+#endif
 #endif
 
 /* The rename of 3.4 has no flags: f2fs never sees these */

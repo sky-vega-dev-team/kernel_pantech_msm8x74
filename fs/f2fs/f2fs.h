@@ -131,7 +131,7 @@ struct f2fs_mount_info {
 #endif
 #ifdef CONFIG_F2FS_QUOTA_COMPAT
 	/* Names of quota files with journalled quota */
-	char *s_qf_names[MAXQUOTAS];
+	char *s_qf_names[F2FS_MAX_QUOTAS];
 	int s_jquota_fmt;			/* Format of quota to use */
 #endif
 	/* For which write hints are passed down to block layer */

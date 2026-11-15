@@ -1159,7 +1159,7 @@ static int f2fs_unfreeze(struct super_block *sb)
 	return 0;
 }
 
-#ifdef CONFIG_F2FS_QUOTA_COMPAT
+#if defined(CONFIG_F2FS_QUOTA_COMPAT) && MAXQUOTAS > PRJQUOTA
 static int f2fs_statfs_project(struct super_block *sb,
 				kprojid_t projid, struct kstatfs *buf)
 {
@@ -1248,7 +1248,7 @@ static int f2fs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_fsid.val[0] = (u32)id;
 	buf->f_fsid.val[1] = (u32)(id >> 32);
 
-#ifdef CONFIG_F2FS_QUOTA_COMPAT
+#if defined(CONFIG_F2FS_QUOTA_COMPAT) && MAXQUOTAS > PRJQUOTA
 	if (is_inode_flag_set(dentry->d_inode, FI_PROJ_INHERIT) &&
 			sb_has_quota_limits_enabled(sb, PRJQUOTA)) {
 		f2fs_statfs_project(sb, F2FS_I(dentry->d_inode)->i_projid, buf);
@@ -1897,7 +1897,7 @@ static int f2fs_enable_quotas(struct super_block *sb)
 	struct f2fs_sb_info *sbi = F2FS_SB(sb);
 	int type, err = 0;
 	unsigned long qf_inum;
-	bool quota_mopt[MAXQUOTAS] = {
+	bool quota_mopt[F2FS_MAX_QUOTAS] = {
 		test_opt(sbi, USRQUOTA),
 		test_opt(sbi, GRPQUOTA),
 		test_opt(sbi, PRJQUOTA),
@@ -2169,11 +2169,17 @@ static const struct dquot_operations f2fs_quota_operations = {
 #endif
 };
 
+/* quota_sync of 3.4 also gets the wait, the quota of f2fs always waits */
+static int f2fs_quotactl_sync(struct super_block *sb, int type, int wait)
+{
+	return f2fs_quota_sync(sb, type);
+}
+
 static const struct quotactl_ops f2fs_quotactl_ops = {
 	.quota_on	= f2fs_quota_on,
 	.quota_off	= f2fs_quota_off,
-	.quota_sync	= f2fs_quota_sync,
-	.get_state	= dquot_get_state,
+	.quota_sync	= f2fs_quotactl_sync,
+	.get_info	= dquot_get_dqinfo,
 	.set_info	= dquot_set_dqinfo,
 	.get_dqblk	= dquot_get_dqblk,
 	.set_dqblk	= dquot_set_dqblk,
@@ -2199,7 +2205,6 @@ static const struct super_operations f2fs_sops = {
 #ifdef CONFIG_F2FS_QUOTA_COMPAT
 	.quota_read	= f2fs_quota_read,
 	.quota_write	= f2fs_quota_write,
-	.get_dquots	= f2fs_get_dquots,
 #endif
 	.evict_inode	= f2fs_evict_inode,
 	.put_super	= f2fs_put_super,
@@ -3148,7 +3153,6 @@ try_onemore:
 #ifdef CONFIG_F2FS_QUOTA_COMPAT
 	sb->dq_op = &f2fs_quota_operations;
 	sb->s_qcop = &f2fs_quotactl_ops;
-	sb->s_quota_types = QTYPE_MASK_USR | QTYPE_MASK_GRP | QTYPE_MASK_PRJ;
 
 	if (f2fs_sb_has_quota_ino(sbi)) {
 		for (i = 0; i < MAXQUOTAS; i++) {
