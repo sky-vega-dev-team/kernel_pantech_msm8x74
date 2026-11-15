@@ -1188,8 +1188,9 @@ config BPF_LOADER_KVER_4_14
 	  The Android bpfloader picks the programs of its objects by the
 	  kernel version uname reports, and skips the ones written for 4.14
 	  (tethering offload, socket create filter) on older kernels. Report
-	  4.14.0 to the processes named bpfloader, for kernels that carry the
-	  eBPF features those programs need.
+	  4.14.0 to the processes named bpfloader (Android 13 and older) and
+	  netbpfload (Android 14), for kernels that carry the eBPF features
+	  those programs need.
 
 config BPF_JIT_ALWAYS_ON
 	bool "Permanently enable BPF JIT and remove BPF interpreter"

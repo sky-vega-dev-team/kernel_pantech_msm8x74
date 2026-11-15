@@ -1317,7 +1317,8 @@ static int override_release(char __user *release, size_t len)
 	 * report 4.14 to the loader to get them instead of the stubs.
 	 */
 	else if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0) &&
-		 !strcmp(current->comm, "bpfloader")) {
+		 (!strcmp(current->comm, "bpfloader") ||
+		  !strcmp(current->comm, "netbpfload"))) {
 		const char *rest = UTS_RELEASE;
 		char buf[65] = { 0 };
 		int ndots = 0;
