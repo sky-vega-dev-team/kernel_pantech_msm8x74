@@ -28,11 +28,6 @@ static LIST_HEAD(blkio_list);
 struct blkio_cgroup blkio_root_cgroup = { .weight = 2*BLKIO_WEIGHT_DEFAULT };
 EXPORT_SYMBOL_GPL(blkio_root_cgroup);
 
-static struct cgroup_subsys_state *blkiocg_create(struct cgroup *);
-static int blkiocg_can_attach(struct cgroup *, struct cgroup_taskset *);
-static void blkiocg_attach(struct cgroup *, struct cgroup_taskset *);
-static void blkiocg_destroy(struct cgroup *);
-static int blkiocg_populate(struct cgroup_subsys *, struct cgroup *);
 
 /* for encoding cft->private value on file */
 #define BLKIOFILE_PRIVATE(x, val)	(((x) << 16) | (val))
@@ -40,21 +35,26 @@ static int blkiocg_populate(struct cgroup_subsys *, struct cgroup *);
 #define BLKIOFILE_POLICY(val)		(((val) >> 16) & 0xffff)
 #define BLKIOFILE_ATTR(val)		((val) & 0xffff)
 
-struct cgroup_subsys blkio_subsys = {
-	.name = "blkio",
-	.create = blkiocg_create,
-	.can_attach = blkiocg_can_attach,
-	.attach = blkiocg_attach,
-	.destroy = blkiocg_destroy,
-	.populate = blkiocg_populate,
-#ifdef CONFIG_BLK_CGROUP
-	/* note: blkio_subsys_id is otherwise defined in blk-cgroup.h */
-	.subsys_id = blkio_subsys_id,
-#endif
-	.use_id = 1,
-	.module = THIS_MODULE,
+/*
+ * The kernfs based cgroup core has no cgroup_map_cb, so the map files print
+ * their "key value" lines to the seq_file through this one.
+ */
+struct cgroup_map_cb {
+	int (*fill)(struct cgroup_map_cb *cb, const char *key, u64 value);
+	void *state;
 };
-EXPORT_SYMBOL_GPL(blkio_subsys);
+
+static int blkio_map_fill(struct cgroup_map_cb *cb, const char *key, u64 value)
+{
+	seq_printf(cb->state, "%s %llu\n", key, (unsigned long long)value);
+	return 0;
+}
+
+static inline struct blkio_cgroup *css_to_blkio_cgroup(
+					struct cgroup_subsys_state *css)
+{
+	return container_of(css, struct blkio_cgroup, css);
+}
 
 static inline void blkio_policy_insert_node(struct blkio_cgroup *blkcg,
 					    struct blkio_policy_node *pn)
@@ -104,17 +104,9 @@ blkio_policy_search_node(const struct blkio_cgroup *blkcg, dev_t dev,
 	return NULL;
 }
 
-struct blkio_cgroup *cgroup_to_blkio_cgroup(struct cgroup *cgroup)
-{
-	return container_of(cgroup_subsys_state(cgroup, blkio_subsys_id),
-			    struct blkio_cgroup, css);
-}
-EXPORT_SYMBOL_GPL(cgroup_to_blkio_cgroup);
-
 struct blkio_cgroup *task_blkio_cgroup(struct task_struct *tsk)
 {
-	return container_of(task_subsys_state(tsk, blkio_subsys_id),
-			    struct blkio_cgroup, css);
+	return css_to_blkio_cgroup(task_css(tsk, blkio_cgrp_id));
 }
 EXPORT_SYMBOL_GPL(task_blkio_cgroup);
 
@@ -485,7 +477,7 @@ void blkiocg_add_blkio_group(struct blkio_cgroup *blkcg,
 	spin_lock_irqsave(&blkcg->lock, flags);
 	spin_lock_init(&blkg->stats_lock);
 	rcu_assign_pointer(blkg->key, key);
-	blkg->blkcg_id = css_id(&blkcg->css);
+	blkg->blkcg_id = blkcg->css.id;
 	hlist_add_head_rcu(&blkg->blkcg_node, &blkcg->blkg_list);
 	blkg->plid = plid;
 	spin_unlock_irqrestore(&blkcg->lock, flags);
@@ -513,7 +505,7 @@ int blkiocg_del_blkio_group(struct blkio_group *blkg)
 	int ret = 1;
 
 	rcu_read_lock();
-	css = css_lookup(&blkio_subsys, blkg->blkcg_id);
+	css = css_from_id(blkg->blkcg_id, &blkio_cgrp_subsys);
 	if (css) {
 		blkcg = container_of(css, struct blkio_cgroup, css);
 		spin_lock_irqsave(&blkcg->lock, flags);
@@ -571,7 +563,8 @@ static void blkio_reset_stats_cpu(struct blkio_group *blkg)
 }
 
 static int
-blkiocg_reset_stats(struct cgroup *cgroup, struct cftype *cftype, u64 val)
+blkiocg_reset_stats(struct cgroup_subsys_state *css, struct cftype *cftype,
+		    u64 val)
 {
 	struct blkio_cgroup *blkcg;
 	struct blkio_group *blkg;
@@ -584,7 +577,7 @@ blkiocg_reset_stats(struct cgroup *cgroup, struct cftype *cftype, u64 val)
 	unsigned long long now = sched_clock();
 #endif
 
-	blkcg = cgroup_to_blkio_cgroup(cgroup);
+	blkcg = css_to_blkio_cgroup(css);
 	spin_lock_irq(&blkcg->lock);
 	hlist_for_each_entry(blkg, n, &blkcg->blkg_list, blkcg_node) {
 		spin_lock(&blkg->stats_lock);
@@ -1059,8 +1052,8 @@ static void blkio_update_policy_node_blkg(struct blkio_cgroup *blkcg,
 	spin_unlock(&blkio_list_lock);
 }
 
-static int blkiocg_file_write(struct cgroup *cgrp, struct cftype *cft,
- 				       const char *buffer)
+static int blkiocg_file_write(struct cgroup_subsys_state *css,
+			      struct cftype *cft, const char *buffer)
 {
 	int ret = 0;
 	char *buf;
@@ -1084,7 +1077,7 @@ static int blkiocg_file_write(struct cgroup *cgrp, struct cftype *cft,
 	if (ret)
 		goto free_newpn;
 
-	blkcg = cgroup_to_blkio_cgroup(cgrp);
+	blkcg = css_to_blkio_cgroup(css);
 
 	spin_lock_irq(&blkcg->lock);
 
@@ -1117,6 +1110,14 @@ free_newpn:
 free_buf:
 	kfree(buf);
 	return ret;
+}
+
+static ssize_t blkiocg_file_write_of(struct kernfs_open_file *of, char *buf,
+				     size_t nbytes, loff_t off)
+{
+	int ret = blkiocg_file_write(of_css(of), of_cft(of), strstrip(buf));
+
+	return ret ?: nbytes;
 }
 
 static void
@@ -1164,14 +1165,14 @@ static void blkio_read_policy_node_files(struct cftype *cft,
 	}
 }
 
-static int blkiocg_file_read(struct cgroup *cgrp, struct cftype *cft,
-				struct seq_file *m)
+static int blkiocg_file_read(struct seq_file *m, void *v)
 {
+	struct cftype *cft = seq_cft(m);
 	struct blkio_cgroup *blkcg;
 	enum blkio_policy_id plid = BLKIOFILE_POLICY(cft->private);
 	int name = BLKIOFILE_ATTR(cft->private);
 
-	blkcg = cgroup_to_blkio_cgroup(cgrp);
+	blkcg = css_to_blkio_cgroup(seq_css(m));
 
 	switch(plid) {
 	case BLKIO_POLICY_PROP:
@@ -1233,14 +1234,16 @@ static int blkio_read_blkg_stats(struct blkio_cgroup *blkcg,
 }
 
 /* All map kind of cgroup file get serviced by this function */
-static int blkiocg_file_read_map(struct cgroup *cgrp, struct cftype *cft,
-				struct cgroup_map_cb *cb)
+static int blkiocg_file_read_map(struct seq_file *sf, void *v)
 {
+	struct cftype *cft = seq_cft(sf);
+	struct cgroup_map_cb map_cb = { .fill = blkio_map_fill, .state = sf };
+	struct cgroup_map_cb *cb = &map_cb;
 	struct blkio_cgroup *blkcg;
 	enum blkio_policy_id plid = BLKIOFILE_POLICY(cft->private);
 	int name = BLKIOFILE_ATTR(cft->private);
 
-	blkcg = cgroup_to_blkio_cgroup(cgrp);
+	blkcg = css_to_blkio_cgroup(seq_css(sf));
 
 	switch(plid) {
 	case BLKIO_POLICY_PROP:
@@ -1338,12 +1341,14 @@ static int blkio_weight_write(struct blkio_cgroup *blkcg, u64 val)
 	return 0;
 }
 
-static u64 blkiocg_file_read_u64 (struct cgroup *cgrp, struct cftype *cft) {
+static u64 blkiocg_file_read_u64(struct cgroup_subsys_state *css,
+				 struct cftype *cft)
+{
 	struct blkio_cgroup *blkcg;
 	enum blkio_policy_id plid = BLKIOFILE_POLICY(cft->private);
 	int name = BLKIOFILE_ATTR(cft->private);
 
-	blkcg = cgroup_to_blkio_cgroup(cgrp);
+	blkcg = css_to_blkio_cgroup(css);
 
 	switch(plid) {
 	case BLKIO_POLICY_PROP:
@@ -1359,13 +1364,14 @@ static u64 blkiocg_file_read_u64 (struct cgroup *cgrp, struct cftype *cft) {
 }
 
 static int
-blkiocg_file_write_u64(struct cgroup *cgrp, struct cftype *cft, u64 val)
+blkiocg_file_write_u64(struct cgroup_subsys_state *css, struct cftype *cft,
+		       u64 val)
 {
 	struct blkio_cgroup *blkcg;
 	enum blkio_policy_id plid = BLKIOFILE_POLICY(cft->private);
 	int name = BLKIOFILE_ATTR(cft->private);
 
-	blkcg = cgroup_to_blkio_cgroup(cgrp);
+	blkcg = css_to_blkio_cgroup(css);
 
 	switch(plid) {
 	case BLKIO_POLICY_PROP:
@@ -1381,13 +1387,13 @@ blkiocg_file_write_u64(struct cgroup *cgrp, struct cftype *cft, u64 val)
 	return 0;
 }
 
-struct cftype blkio_files[] = {
+static struct cftype blkio_files[] = {
 	{
 		.name = "weight_device",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_weight_device),
-		.read_seq_string = blkiocg_file_read,
-		.write_string = blkiocg_file_write,
+		.seq_show = blkiocg_file_read,
+		.write = blkiocg_file_write_of,
 		.max_write_len = 256,
 	},
 	{
@@ -1401,49 +1407,49 @@ struct cftype blkio_files[] = {
 		.name = "time",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_time),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "sectors",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_sectors),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "io_service_bytes",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_io_service_bytes),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "io_serviced",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_io_serviced),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "io_service_time",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_io_service_time),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "io_wait_time",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_io_wait_time),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "io_merged",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_io_merged),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "io_queued",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_io_queued),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "reset_stats",
@@ -1454,8 +1460,8 @@ struct cftype blkio_files[] = {
 		.name = "throttle.read_bps_device",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_THROTL,
 				BLKIO_THROTL_read_bps_device),
-		.read_seq_string = blkiocg_file_read,
-		.write_string = blkiocg_file_write,
+		.seq_show = blkiocg_file_read,
+		.write = blkiocg_file_write_of,
 		.max_write_len = 256,
 	},
 
@@ -1463,8 +1469,8 @@ struct cftype blkio_files[] = {
 		.name = "throttle.write_bps_device",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_THROTL,
 				BLKIO_THROTL_write_bps_device),
-		.read_seq_string = blkiocg_file_read,
-		.write_string = blkiocg_file_write,
+		.seq_show = blkiocg_file_read,
+		.write = blkiocg_file_write_of,
 		.max_write_len = 256,
 	},
 
@@ -1472,8 +1478,8 @@ struct cftype blkio_files[] = {
 		.name = "throttle.read_iops_device",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_THROTL,
 				BLKIO_THROTL_read_iops_device),
-		.read_seq_string = blkiocg_file_read,
-		.write_string = blkiocg_file_write,
+		.seq_show = blkiocg_file_read,
+		.write = blkiocg_file_write_of,
 		.max_write_len = 256,
 	},
 
@@ -1481,21 +1487,21 @@ struct cftype blkio_files[] = {
 		.name = "throttle.write_iops_device",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_THROTL,
 				BLKIO_THROTL_write_iops_device),
-		.read_seq_string = blkiocg_file_read,
-		.write_string = blkiocg_file_write,
+		.seq_show = blkiocg_file_read,
+		.write = blkiocg_file_write_of,
 		.max_write_len = 256,
 	},
 	{
 		.name = "throttle.io_service_bytes",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_THROTL,
 				BLKIO_THROTL_io_service_bytes),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "throttle.io_serviced",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_THROTL,
 				BLKIO_THROTL_io_serviced),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 #endif /* CONFIG_BLK_DEV_THROTTLING */
 
@@ -1504,50 +1510,45 @@ struct cftype blkio_files[] = {
 		.name = "avg_queue_size",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_avg_queue_size),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "group_wait_time",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_group_wait_time),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "idle_time",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_idle_time),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "empty_time",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_empty_time),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "dequeue",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_dequeue),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 	{
 		.name = "unaccounted_time",
 		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_PROP,
 				BLKIO_PROP_unaccounted_time),
-		.read_map = blkiocg_file_read_map,
+		.seq_show = blkiocg_file_read_map,
 	},
 #endif
+	{ }	/* terminate */
 };
 
-static int blkiocg_populate(struct cgroup_subsys *subsys, struct cgroup *cgroup)
+static void blkiocg_css_offline(struct cgroup_subsys_state *css)
 {
-	return cgroup_add_files(cgroup, subsys, blkio_files,
-				ARRAY_SIZE(blkio_files));
-}
-
-static void blkiocg_destroy(struct cgroup *cgroup)
-{
-	struct blkio_cgroup *blkcg = cgroup_to_blkio_cgroup(cgroup);
+	struct blkio_cgroup *blkcg = css_to_blkio_cgroup(css);
 	unsigned long flags;
 	struct blkio_group *blkg;
 	void *key;
@@ -1589,18 +1590,23 @@ static void blkiocg_destroy(struct cgroup *cgroup)
 		kfree(pn);
 	}
 
-	free_css_id(&blkio_subsys, &blkcg->css);
 	rcu_read_unlock();
+}
+
+static void blkiocg_css_free(struct cgroup_subsys_state *css)
+{
+	struct blkio_cgroup *blkcg = css_to_blkio_cgroup(css);
+
 	if (blkcg != &blkio_root_cgroup)
 		kfree(blkcg);
 }
 
-static struct cgroup_subsys_state *blkiocg_create(struct cgroup *cgroup)
+static struct cgroup_subsys_state *
+blkiocg_css_alloc(struct cgroup_subsys_state *parent_css)
 {
 	struct blkio_cgroup *blkcg;
-	struct cgroup *parent = cgroup->parent;
 
-	if (!parent) {
+	if (!parent_css) {
 		blkcg = &blkio_root_cgroup;
 		goto done;
 	}
@@ -1624,14 +1630,15 @@ done:
  * of the main cic data structures.  For now we allow a task to change
  * its cgroup only if it's the only owner of its ioc.
  */
-static int blkiocg_can_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
+static int blkiocg_can_attach(struct cgroup_taskset *tset)
 {
+	struct cgroup_subsys_state *css;
 	struct task_struct *task;
 	struct io_context *ioc;
 	int ret = 0;
 
 	/* task_lock() is needed to avoid races with exit_io_context() */
-	cgroup_taskset_for_each(task, cgrp, tset) {
+	cgroup_taskset_for_each(task, css, tset) {
 		task_lock(task);
 		ioc = task->io_context;
 		if (ioc && atomic_read(&ioc->nr_tasks) > 1)
@@ -1643,12 +1650,13 @@ static int blkiocg_can_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
 	return ret;
 }
 
-static void blkiocg_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
+static void blkiocg_attach(struct cgroup_taskset *tset)
 {
+	struct cgroup_subsys_state *css;
 	struct task_struct *task;
 	struct io_context *ioc;
 
-	cgroup_taskset_for_each(task, cgrp, tset) {
+	cgroup_taskset_for_each(task, css, tset) {
 		/* we don't lose anything even if ioc allocation fails */
 		ioc = get_task_io_context(task, GFP_ATOMIC, NUMA_NO_NODE);
 		if (ioc) {
@@ -1674,16 +1682,11 @@ void blkio_policy_unregister(struct blkio_policy_type *blkiop)
 }
 EXPORT_SYMBOL_GPL(blkio_policy_unregister);
 
-static int __init init_cgroup_blkio(void)
-{
-	return cgroup_load_subsys(&blkio_subsys);
-}
-
-static void __exit exit_cgroup_blkio(void)
-{
-	cgroup_unload_subsys(&blkio_subsys);
-}
-
-module_init(init_cgroup_blkio);
-module_exit(exit_cgroup_blkio);
-MODULE_LICENSE("GPL");
+struct cgroup_subsys blkio_cgrp_subsys = {
+	.css_alloc = blkiocg_css_alloc,
+	.css_offline = blkiocg_css_offline,
+	.css_free = blkiocg_css_free,
+	.can_attach = blkiocg_can_attach,
+	.attach = blkiocg_attach,
+	.legacy_cftypes = blkio_files,
+};

@@ -27,9 +27,6 @@ enum blkio_policy_id {
 #if defined(CONFIG_BLK_CGROUP) || defined(CONFIG_BLK_CGROUP_MODULE)
 
 #ifndef CONFIG_BLK_CGROUP
-/* When blk-cgroup is a module, its subsys_id isn't a compile-time constant */
-extern struct cgroup_subsys blkio_subsys;
-#define blkio_subsys_id blkio_subsys.subsys_id
 #endif
 
 enum stat_type {
@@ -162,7 +159,7 @@ struct blkio_group {
 	/* An rcu protected unique identifier for the group */
 	void *key;
 	struct hlist_node blkcg_node;
-	unsigned short blkcg_id;
+	int blkcg_id;
 	/* Store cgroup path */
 	char path[128];
 	/* The device MKDEV(major, minor), this group has been created for */
@@ -305,7 +302,6 @@ static inline void blkiocg_set_start_empty_time(struct blkio_group *blkg) {}
 
 #if defined(CONFIG_BLK_CGROUP) || defined(CONFIG_BLK_CGROUP_MODULE)
 extern struct blkio_cgroup blkio_root_cgroup;
-extern struct blkio_cgroup *cgroup_to_blkio_cgroup(struct cgroup *cgroup);
 extern struct blkio_cgroup *task_blkio_cgroup(struct task_struct *tsk);
 extern void blkiocg_add_blkio_group(struct blkio_cgroup *blkcg,
 	struct blkio_group *blkg, void *key, dev_t dev,
@@ -329,8 +325,6 @@ void blkiocg_update_io_remove_stats(struct blkio_group *blkg,
 					bool direction, bool sync);
 #else
 struct cgroup;
-static inline struct blkio_cgroup *
-cgroup_to_blkio_cgroup(struct cgroup *cgroup) { return NULL; }
 static inline struct blkio_cgroup *
 task_blkio_cgroup(struct task_struct *tsk) { return NULL; }
 
