@@ -53,6 +53,10 @@
 #include <mach/gpio.h>
 #include <linux/gpio.h>
 #include <linux/i2c.h>
+#ifdef CONFIG_ANDROID_RAM_CONSOLE
+#include <linux/memblock.h>
+#include <linux/persistent_ram.h>
+#endif
 #endif
 
 
@@ -77,8 +81,55 @@ static struct reserve_info msm8974_reserve_info __initdata = {
 	.paddr_to_memtype = msm8974_paddr_to_memtype,
 };
 
+#ifdef CONFIG_ANDROID_RAM_CONSOLE
+/*
+ * Keep the kernel log of the previous boot in /proc/last_kmsg: a ram console
+ * in the last megabyte of DRAM, which the warm reset after a panic or a
+ * watchdog bite leaves alone.
+ */
+#define MSM8974_RAM_CONSOLE_SIZE SZ_1M
+
+static struct persistent_ram_descriptor msm8974_pram_descs[] = {
+	{
+		.name = "ram_console",
+		.size = MSM8974_RAM_CONSOLE_SIZE,
+	},
+};
+
+static struct persistent_ram msm8974_persistent_ram = {
+	.size = MSM8974_RAM_CONSOLE_SIZE,
+	.num_descs = ARRAY_SIZE(msm8974_pram_descs),
+	.descs = msm8974_pram_descs,
+};
+
+static struct platform_device msm8974_ram_console_device = {
+	.name = "ram_console",
+	.id = -1,
+};
+
+static bool msm8974_ram_console_reserved;
+
+static void __init msm8974_reserve_ram_console(void)
+{
+	msm8974_persistent_ram.start =
+		memblock_end_of_DRAM() - MSM8974_RAM_CONSOLE_SIZE;
+	msm8974_ram_console_reserved =
+		!persistent_ram_early_init(&msm8974_persistent_ram);
+}
+
+static void __init msm8974_add_ram_console(void)
+{
+	if (msm8974_ram_console_reserved)
+		platform_device_register(&msm8974_ram_console_device);
+}
+#else
+static inline void msm8974_reserve_ram_console(void) { }
+static inline void msm8974_add_ram_console(void) { }
+#endif
+
 void __init msm_8974_reserve(void)
 {
+	msm8974_reserve_ram_console();
 	reserve_info = &msm8974_reserve_info;
 	of_scan_flat_dt(dt_scan_for_memory_reserve, msm8974_reserve_table);
 	msm_reserve();
@@ -177,6 +228,7 @@ void __init msm8974_init(void)
 	regulator_has_full_constraints();
 	board_dt_populate(adata);
 	msm8974_add_drivers();
+	msm8974_add_ram_console();
 
 #ifndef CONFIG_PANTECH_SNS_PIXART_VLED_PWR_CONTROLED_BY_DDF
     {
