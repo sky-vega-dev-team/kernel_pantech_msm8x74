@@ -158,6 +158,9 @@ struct msm_isp_buf_mgr {
 int msm_isp_create_isp_buf_mgr(struct msm_isp_buf_mgr *buf_mgr,
 	struct msm_sd_req_vb2_q *vb2_ops, struct msm_iova_layout *iova_layout);
 
+int msm_isp_buf_share_resync(struct msm_isp_buf_mgr *buf_mgr,
+	uint32_t bufq_handle, uint32_t id);
+
 int msm_isp_proc_buf_cmd(struct msm_isp_buf_mgr *buf_mgr,
 	unsigned int cmd, void *arg);
 

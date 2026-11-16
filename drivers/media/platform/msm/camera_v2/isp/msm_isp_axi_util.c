@@ -1209,6 +1209,32 @@ static int msm_isp_init_stream_ping_pong_reg(
 	struct msm_vfe_axi_stream *stream_info)
 {
 	int rc = 0;
+	int id = vfe_dev->pdev->id;
+
+	/*
+	 * Started on the other VFE already while both CAMIFs run: leave it the
+	 * buffers of the frames it writes alone (see msm_isp_buf_share_resync).
+	 * Not at the start of the CAMIFs, which start both VFEs together.
+	 */
+	if (id >= 0 && id < ARRAY_SIZE(vfe_devices) && vfe_devices[!id] &&
+		msm_isp_dual_running(vfe_dev)) {
+		struct msm_vfe_axi_shared_data *other =
+			&vfe_devices[!id]->axi_data;
+		int i;
+
+		for (i = 0; i < MAX_NUM_STREAM; i++) {
+			if (other->stream_info[i].bufq_handle ==
+				stream_info->bufq_handle &&
+				(other->stream_info[i].state == START_PENDING ||
+				other->stream_info[i].state == STARTING ||
+				other->stream_info[i].state == ACTIVE)) {
+				msm_isp_buf_share_resync(vfe_dev->buf_mgr,
+					stream_info->bufq_handle, id);
+				break;
+			}
+		}
+	}
+
 	/*Set address for both PING & PONG register */
 	rc = msm_isp_cfg_ping_pong_address(vfe_dev,
 		stream_info, VFE_PING_FLAG);

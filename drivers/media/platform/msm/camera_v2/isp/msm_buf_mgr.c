@@ -654,6 +654,65 @@ static int msm_isp_get_buf_src(struct msm_isp_buf_mgr *buf_mgr,
 	return 0;
 }
 
+/*
+ * With a frame split over both VFEs, the camera daemon starts a stream on the
+ * second VFE while the CAMIFs run only once its start on the first took
+ * effect, two frames later. The first VFE takes buffers for the frames it
+ * then writes alone and puts them on the shared list, and the second one
+ * takes them in turn for its own first frames: from then on every buffer
+ * holds the halves of frames two apart and the picture tears in the middle,
+ * with a brightness step where exposures differ (HDR+ bursts).
+ *
+ * When the second VFE sets up its stream, take the buffers it did not take
+ * yet off the shared list and let the first VFE pass them on alone, as
+ * userspace expects an event for every frame; recycle those it is done with
+ * already. The second VFE then takes fresh buffers, which the first takes
+ * from the shared list for the same frames. Starting both VFEs at the same
+ * frame instead hangs the device.
+ */
+int msm_isp_buf_share_resync(struct msm_isp_buf_mgr *buf_mgr,
+	uint32_t bufq_handle, uint32_t id)
+{
+	struct msm_isp_bufq *bufq;
+	struct msm_isp_buffer *buf, *tmp;
+	uint32_t recycle[ISP_SHARE_BUF_CLIENT * 8];
+	int num_recycle = 0, num_resync = 0, i;
+	unsigned long flags;
+
+	bufq = msm_isp_get_bufq(buf_mgr, bufq_handle);
+	if (!bufq || bufq->buf_type != ISP_SHARE_BUF ||
+		id >= ISP_SHARE_BUF_CLIENT)
+		return 0;
+
+	spin_lock_irqsave(&bufq->bufq_lock, flags);
+	list_for_each_entry_safe(buf, tmp, &bufq->share_head, share_list) {
+		if (buf->buf_used[id])
+			continue;
+		list_del_init(&buf->share_list);
+		if (buf->buf_reuse_flag) {
+			/* No buffer was free for the other VFE */
+			kfree(buf);
+			continue;
+		}
+		/* Nobody else takes it any more */
+		buf->buf_get_count = bufq->buf_client_count;
+		if (buf->buf_put_count) {
+			/* Its VFE is done already and waits for the other */
+			if (num_recycle < ARRAY_SIZE(recycle))
+				recycle[num_recycle++] = buf->buf_idx;
+		} else {
+			/* Its VFE passes it on alone when done */
+			buf->buf_put_count = ISP_SHARE_BUF_CLIENT - 1;
+		}
+		num_resync++;
+	}
+	spin_unlock_irqrestore(&bufq->bufq_lock, flags);
+
+	for (i = 0; i < num_recycle; i++)
+		msm_isp_put_buf(buf_mgr, bufq_handle, recycle[i]);
+	return num_resync;
+}
+
 static int msm_isp_request_bufq(struct msm_isp_buf_mgr *buf_mgr,
 	struct msm_isp_buf_request *buf_request)
 {
