@@ -10,6 +10,7 @@
  * GNU General Public License for more details.
  */
 #include <linux/io.h>
+#include <linux/jiffies.h>
 #include <media/v4l2-subdev.h>
 #include "msm_isp_util.h"
 #include "msm_isp_axi_util.h"
@@ -341,8 +342,24 @@ int msm_isp_axi_check_stream_state(
  		}
 		stream_info = &axi_data->stream_info[
 			HANDLE_TO_IDX(stream_cfg_cmd->stream_handle[i])];
+		/*
+		 * The camera daemon sometimes never starts the second VFE's
+		 * half of a stream (after a client died during a burst), and
+		 * then asks to stop it along with the rest. Refusing the whole
+		 * stop left the daemon broken until it restarted: no camera
+		 * would open any more. Skip a stream not started instead.
+		 */
+		if (stream_cfg_cmd->cmd != START_STREAM &&
+			(stream_info->state == INACTIVE ||
+			stream_info->state == AVALIABLE))
+			continue;
 		if (stream_info->state != valid_state) {
-			pr_err("%s: Invalid stream state\n", __func__);
+			pr_err("%s: Invalid stream state %d for %s of stream %u (vfe%d)\n",
+				__func__, stream_info->state,
+				stream_cfg_cmd->cmd == START_STREAM ?
+				"start" : "stop",
+				HANDLE_TO_IDX(stream_cfg_cmd->stream_handle[i]),
+				vfe_dev->pdev->id);
 			rc = -EINVAL;
 			break;
 		}
@@ -1353,6 +1370,7 @@ static int msm_isp_stop_axi_stream(struct vfe_device *vfe_dev,
 {
 	int i, rc = 0;
 	uint8_t wait_for_complete = 0;
+	uint32_t not_started = 0;
 	struct msm_vfe_axi_stream *stream_info;
 	struct msm_vfe_axi_shared_data *axi_data = &vfe_dev->axi_data;
 
@@ -1368,7 +1386,12 @@ static int msm_isp_stop_axi_stream(struct vfe_device *vfe_dev,
 		stream_info = &axi_data->stream_info[
 		     HANDLE_TO_IDX(stream_cfg_cmd->stream_handle[i])];
 
-
+		/* Never started: see msm_isp_axi_check_stream_state() */
+		if (stream_info->state == INACTIVE ||
+			stream_info->state == AVALIABLE) {
+			not_started |= 1 << i;
+			continue;
+		}
 		stream_info->state = STOP_PENDING;
 		if (stream_info->stream_type == BURST_STREAM &&
 			stream_info->runtime_num_burst_capture == 0) {
@@ -1400,6 +1423,8 @@ static int msm_isp_stop_axi_stream(struct vfe_device *vfe_dev,
 	msm_isp_update_camif_output_count(vfe_dev, stream_cfg_cmd);
 
 	for (i = 0; i < stream_cfg_cmd->num_streams; i++) {
+		if (not_started & (1 << i))
+			continue;
 		stream_info = &axi_data->stream_info[
 			HANDLE_TO_IDX(stream_cfg_cmd->stream_handle[i])];
 		msm_isp_deinit_stream_ping_pong_reg(vfe_dev, stream_info);
@@ -1408,6 +1433,109 @@ static int msm_isp_stop_axi_stream(struct vfe_device *vfe_dev,
 }
 
 
+/*
+ * With a frame split over both VFEs, the camera daemon sometimes names a
+ * stream of the second VFE by a handle it never gave out ("Invalid stream
+ * state 0 for start of stream 3"), right after starting or stopping the same
+ * stream on the first VFE; it releases it by the right handle later. On a
+ * start, the second half of the frame never comes, the client waits for
+ * frames forever and the daemon is left broken; on a stop, the stream goes on
+ * writing into the buffers the daemon frees next (VFE IOMMU page faults).
+ *
+ * Remember the last stream started or stopped on each VFE. When a command
+ * names a stream slot that is not in use, apply it instead to the stream of
+ * this VFE for the same session and stream as the one the other VFE was
+ * just given the same command for, if there is exactly one such stream in a
+ * state the command applies to.
+ */
+#define DUAL_CMD_REDIRECT_MS 2000
+
+static struct {
+	uint32_t cmd;
+	uint32_t session_id;
+	uint32_t stream_id;
+	unsigned long time;
+	bool valid;
+} last_cmd[2];
+
+static void msm_isp_note_cmd(struct vfe_device *vfe_dev,
+	struct msm_vfe_axi_stream_cfg_cmd *stream_cfg_cmd)
+{
+	int id = vfe_dev->pdev->id;
+	uint32_t idx;
+
+	if (id < 0 || id >= ARRAY_SIZE(last_cmd) ||
+		!stream_cfg_cmd->num_streams)
+		return;
+	idx = HANDLE_TO_IDX(stream_cfg_cmd->stream_handle[0]);
+	if (idx >= MAX_NUM_STREAM ||
+		vfe_dev->axi_data.stream_info[idx].state == AVALIABLE)
+		return;
+	last_cmd[id].cmd = stream_cfg_cmd->cmd;
+	last_cmd[id].session_id =
+		vfe_dev->axi_data.stream_info[idx].session_id;
+	last_cmd[id].stream_id =
+		vfe_dev->axi_data.stream_info[idx].stream_id;
+	last_cmd[id].time = jiffies;
+	last_cmd[id].valid = true;
+}
+
+static bool msm_isp_redirect_state_ok(uint32_t cmd,
+	enum msm_vfe_axi_state state)
+{
+	if (cmd == START_STREAM)
+		return state == INACTIVE;
+	return state == ACTIVE || state == STARTING;
+}
+
+static void msm_isp_redirect_cmd(struct vfe_device *vfe_dev,
+	struct msm_vfe_axi_stream_cfg_cmd *stream_cfg_cmd)
+{
+	struct msm_vfe_axi_shared_data *axi_data = &vfe_dev->axi_data;
+	int id = vfe_dev->pdev->id;
+	uint32_t idx;
+	int i, j, found;
+
+	if (id < 0 || id >= ARRAY_SIZE(last_cmd))
+		return;
+	if (!last_cmd[!id].valid ||
+		last_cmd[!id].cmd != stream_cfg_cmd->cmd ||
+		time_after(jiffies, last_cmd[!id].time +
+			msecs_to_jiffies(DUAL_CMD_REDIRECT_MS)))
+		return;
+
+	for (i = 0; i < stream_cfg_cmd->num_streams; i++) {
+		idx = HANDLE_TO_IDX(stream_cfg_cmd->stream_handle[i]);
+		if (idx < MAX_NUM_STREAM &&
+			axi_data->stream_info[idx].state != AVALIABLE)
+			continue;
+		found = -1;
+		for (j = 0; j < MAX_NUM_STREAM; j++) {
+			if (!msm_isp_redirect_state_ok(stream_cfg_cmd->cmd,
+					axi_data->stream_info[j].state) ||
+				axi_data->stream_info[j].session_id !=
+					last_cmd[!id].session_id ||
+				axi_data->stream_info[j].stream_id !=
+					last_cmd[!id].stream_id)
+				continue;
+			if (found >= 0) {
+				found = -1;
+				break;
+			}
+			found = j;
+		}
+		if (found < 0)
+			continue;
+		pr_err("%s: vfe%d asked to %s unknown stream %u, taking stream %d as the other VFE did\n",
+			__func__, id,
+			stream_cfg_cmd->cmd == START_STREAM ? "start" : "stop",
+			idx, found);
+		stream_cfg_cmd->stream_handle[i] =
+			axi_data->stream_info[found].stream_handle;
+		last_cmd[!id].valid = false;
+	}
+}
+
 int msm_isp_cfg_axi_stream(struct vfe_device *vfe_dev, void *arg)
 {
 	int rc = 0;
@@ -1415,11 +1543,13 @@ int msm_isp_cfg_axi_stream(struct vfe_device *vfe_dev, void *arg)
 	struct msm_vfe_axi_shared_data *axi_data = &vfe_dev->axi_data;
 	enum msm_isp_camif_update_state camif_update;
 
+	msm_isp_redirect_cmd(vfe_dev, stream_cfg_cmd);
 	rc = msm_isp_axi_check_stream_state(vfe_dev, stream_cfg_cmd);
 	if (rc < 0) {
 		pr_err("%s: Invalid stream state\n", __func__);
 		return rc;
 	}
+	msm_isp_note_cmd(vfe_dev, stream_cfg_cmd);
 
 	if (axi_data->num_active_stream == 0) {
 		/*Configure UB*/
