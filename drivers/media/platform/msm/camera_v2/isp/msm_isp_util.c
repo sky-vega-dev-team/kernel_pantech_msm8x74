@@ -232,12 +232,21 @@ int msm_isp_unsubscribe_event(struct v4l2_subdev *sd, struct v4l2_fh *fh,
 	return rc;
 }
 
+#define MSM_ISP_TURBO_CLK_RATE 320000000L
+
 static int msm_isp_set_clk_rate(struct vfe_device *vfe_dev, long *rate)
 {
 	int rc = 0;
 	int clk_idx = vfe_dev->hw_info->vfe_clk_idx;
+	/*
+	 * The rate asked for is the pixel clock of the sensor, which leaves
+	 * the VFE at 200 or 266 MHz. That was too slow for 1080p at 60 fps:
+	 * the pipeline fell behind and about 40 % of the video frames were
+	 * old buffers handed back unwritten. Run it at the turbo rate.
+	 */
 	long round_rate =
-		clk_round_rate(vfe_dev->vfe_clk[clk_idx], *rate);
+		clk_round_rate(vfe_dev->vfe_clk[clk_idx],
+			max(*rate, MSM_ISP_TURBO_CLK_RATE));
 	if (round_rate < 0) {
 		pr_err("%s: Invalid vfe clock rate\n", __func__);
 		return round_rate;

@@ -1661,6 +1661,13 @@ long msm_cpp_subdev_ioctl(struct v4l2_subdev *sd,
 
 		if ((clock_rate == MSM_CPP_NOMINAL_CLOCK) ||
 			(clock_rate == MSM_CPP_TURBO_CLOCK)) {
+			/*
+			 * The daemon mostly asks for the nominal rate, at which
+			 * the CPP could not keep up with 1080p at 60 fps and
+			 * handed back old buffers for many video frames. Always
+			 * run it at the turbo rate.
+			 */
+			clock_rate = MSM_CPP_TURBO_CLOCK;
 			CPP_DBG("clk:%ld\n", clock_rate);
 			clk_set_rate(cpp_dev->cpp_clk[4], clock_rate);
 		}
